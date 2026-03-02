@@ -1,5 +1,11 @@
-variable "project_name" { type = string }
-variable "environment"  { type = string; default = "production" }
+variable "project_name" {
+  type = string
+}
+
+variable "environment" {
+  type    = string
+  default = "production"
+}
 
 variable "kms_key_arn" {
   description = "KMS CMK ARN for Macie findings export encryption."
@@ -29,4 +35,7 @@ variable "finding_publishing_frequency" {
   }
 }
 
-variable "tags" { type = map(string); default = {} }
+variable "tags" {
+  type    = map(string)
+  default = {}
+}

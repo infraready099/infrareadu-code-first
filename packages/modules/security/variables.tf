@@ -1,5 +1,11 @@
-variable "project_name" { type = string }
-variable "environment" { type = string; default = "production" }
+variable "project_name" {
+  type = string
+}
+
+variable "environment" {
+  type    = string
+  default = "production"
+}
 
 variable "alert_email" {
   description = "Email address to receive security alerts and billing alarms."
@@ -54,4 +60,7 @@ variable "enable_nist_standard" {
   default     = false
 }
 
-variable "tags" { type = map(string); default = {} }
+variable "tags" {
+  type    = map(string)
+  default = {}
+}

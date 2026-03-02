@@ -1,5 +1,11 @@
-variable "project_name" { type = string }
-variable "environment"  { type = string; default = "production" }
+variable "project_name" {
+  type = string
+}
+
+variable "environment" {
+  type    = string
+  default = "production"
+}
 
 variable "enable_hipaa" {
   description = "HIPAA mode: stricter key policies, PHI tagging on all keys."
@@ -18,4 +24,7 @@ variable "deletion_window_in_days" {
   }
 }
 
-variable "tags" { type = map(string); default = {} }
+variable "tags" {
+  type    = map(string)
+  default = {}
+}

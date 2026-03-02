@@ -1,5 +1,11 @@
-variable "project_name" { type = string }
-variable "environment"  { type = string; default = "production" }
+variable "project_name" {
+  type = string
+}
+
+variable "environment" {
+  type    = string
+  default = "production"
+}
 
 variable "scope" {
   description = "REGIONAL (for ALB) or CLOUDFRONT (must use us-east-1 provider)."
@@ -52,4 +58,7 @@ variable "log_retention_days" {
   default = 90
 }
 
-variable "tags" { type = map(string); default = {} }
+variable "tags" {
+  type    = map(string)
+  default = {}
+}

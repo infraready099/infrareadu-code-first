@@ -1,8 +1,21 @@
-variable "project_name" { type = string }
-variable "environment"  { type = string; default = "production" }
+variable "project_name" {
+  type = string
+}
 
-variable "vpc_id"   { type = string; description = "VPC ID from VPC module output." }
-variable "vpc_cidr" { type = string; description = "VPC CIDR block from VPC module output." }
+variable "environment" {
+  type    = string
+  default = "production"
+}
+
+variable "vpc_id" {
+  type        = string
+  description = "VPC ID from VPC module output."
+}
+
+variable "vpc_cidr" {
+  type        = string
+  description = "VPC CIDR block from VPC module output."
+}
 
 variable "private_subnet_ids" {
   type        = list(string)
@@ -24,4 +37,7 @@ variable "enable_xray_endpoint" {
   default = false
 }
 
-variable "tags" { type = map(string); default = {} }
+variable "tags" {
+  type    = map(string)
+  default = {}
+}

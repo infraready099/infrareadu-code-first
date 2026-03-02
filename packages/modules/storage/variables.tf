@@ -1,5 +1,11 @@
-variable "project_name" { type = string }
-variable "environment" { type = string; default = "production" }
+variable "project_name" {
+  type = string
+}
+
+variable "environment" {
+  type    = string
+  default = "production"
+}
 
 variable "cdn_domain" {
   description = "Custom domain for CloudFront (e.g. cdn.example.com). Leave empty for default CloudFront domain."
@@ -19,4 +25,7 @@ variable "enable_access_logging" {
   default     = true
 }
 
-variable "tags" { type = map(string); default = {} }
+variable "tags" {
+  type    = map(string)
+  default = {}
+}

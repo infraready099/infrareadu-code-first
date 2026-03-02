@@ -3,10 +3,16 @@ name: Compliance & Security Scan
 on:
   push:
     branches: [main, develop]
-    paths: ["packages/modules/**"]
+    paths:
+      - "packages/modules/**"
+      - ".github/workflows/compliance.yml"
+      - ".checkov.yaml"
   pull_request:
     branches: [main]
-    paths: ["packages/modules/**"]
+    paths:
+      - "packages/modules/**"
+      - ".github/workflows/compliance.yml"
+      - ".checkov.yaml"
 
 # Required for SARIF upload to GitHub Security tab
 permissions:
