@@ -93,7 +93,14 @@ resource "aws_db_parameter_group" "this" {
       { name = "log_duration", value = "1" },
       { name = "log_lock_waits", value = "1" },
       { name = "log_min_duration_statement", value = "1000" }, # Log slow queries >1s
-      { name = "shared_preload_libraries", value = "pg_stat_statements" }
+      # pgaudit — HIPAA §164.312(b) audit controls, logs every SQL statement
+      { name = "shared_preload_libraries", value = "pg_stat_statements,pgaudit" },
+      { name = "pgaudit.log", value = "all" },                  # Log all statement classes
+      { name = "pgaudit.log_catalog", value = "1" },            # Include catalog queries
+      { name = "pgaudit.log_parameter", value = "1" },          # Log bind parameters
+      { name = "pgaudit.log_relation", value = "1" },           # Log relation OID
+      { name = "log_statement", value = "ddl" },                # Log all DDL (CREATE/ALTER/DROP)
+      { name = "log_min_error_statement", value = "error" }     # Log statements causing errors
     ] : []
     content {
       name  = parameter.value.name
