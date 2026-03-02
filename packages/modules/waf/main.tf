@@ -208,9 +208,11 @@ resource "aws_wafv2_web_acl_logging_configuration" "this" {
   log_destination_configs = [aws_cloudwatch_log_group.waf.arn]
   resource_arn            = aws_wafv2_web_acl.this.arn
 
-  # Log everything except request body (PII risk)
+  # Redact sensitive headers — each redacted_fields block allows only one field type
   redacted_fields {
     single_header { name = "authorization" }
+  }
+  redacted_fields {
     single_header { name = "cookie" }
   }
 }

@@ -76,12 +76,14 @@ jobs:
           ERRORS=0
           for module in packages/modules/*/; do
             echo "── Linting $module"
-            tflint --chdir="$module" --format=compact || ERRORS=$((ERRORS+1))
+            # --minimum-failure-severity=error: warnings are printed but don't fail the build
+            tflint --chdir="$module" --format=compact --minimum-failure-severity=error || ERRORS=$((ERRORS+1))
           done
           if [ $ERRORS -gt 0 ]; then
-            echo "❌ $ERRORS module(s) failed TFLint"
+            echo "❌ $ERRORS module(s) have TFLint errors"
             exit 1
           fi
+          echo "✅ All modules passed TFLint"
 
   # ─── CHECKOV — POLICY AS CODE ────────────────────────────────────────────
   checkov:

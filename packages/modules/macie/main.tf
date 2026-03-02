@@ -29,7 +29,6 @@ locals {
 }
 
 data "aws_caller_identity" "current" {}
-data "aws_region" "current" {}
 
 # ─── ENABLE MACIE ─────────────────────────────────────────────────────────────
 
@@ -190,13 +189,11 @@ resource "aws_macie2_classification_job" "phi_scan" {
       }
     }
 
-    # What to detect — covers all HIPAA PHI identifiers
-    managed_data_identifier_selector = "ALL" # Includes: SSN, MRN, NPI, DEA, health insurance, etc.
   }
 
   tags = local.common_tags
 
-  depends_on = [aws_macie2_account.this, aws_macie2_export_configuration.this]
+  depends_on = [aws_macie2_account.this, aws_macie2_classification_export_configuration.this]
 }
 
 # ─── ALERT ON MACIE FINDINGS ─────────────────────────────────────────────────

@@ -1,6 +1,5 @@
 locals {
-  name   = "${var.project_name}-${var.environment}"
-  region = var.aws_region
+  name = "${var.project_name}-${var.environment}"
 
   # Use provided AZs or default to first 2 in region
   azs = length(var.availability_zones) > 0 ? var.availability_zones : [
