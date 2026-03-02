@@ -1,0 +1,194 @@
+name: Compliance & Security Scan
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ["packages/modules/**"]
+  pull_request:
+    branches: [main]
+    paths: ["packages/modules/**"]
+
+jobs:
+  # ─── OPENTOFU VALIDATE ────────────────────────────────────────────────────
+  validate:
+    name: OpenTofu Validate
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: [vpc, rds, ecs, storage, security, waf, vpc-endpoints]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.10.0"
+
+      - name: OpenTofu Init (${{ matrix.module }})
+        run: tofu init -backend=false
+        working-directory: packages/modules/${{ matrix.module }}
+
+      - name: OpenTofu Validate (${{ matrix.module }})
+        run: tofu validate
+        working-directory: packages/modules/${{ matrix.module }}
+
+  # ─── TFLINT ──────────────────────────────────────────────────────────────
+  tflint:
+    name: TFLint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: v0.54.0
+
+      - name: Init TFLint
+        run: tflint --init
+
+      - name: Run TFLint on all modules
+        run: |
+          for module in packages/modules/*/; do
+            echo "Linting $module"
+            tflint --chdir="$module" --format=compact
+          done
+
+  # ─── CHECKOV — POLICY AS CODE ─────────────────────────────────────────────
+  checkov:
+    name: Checkov Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: packages/modules
+          framework: terraform
+          soft_fail: false
+          # Compliance frameworks to check against
+          check: >-
+            CKV_AWS_7,    # KMS key rotation
+            CKV_AWS_16,   # RDS encryption
+            CKV_AWS_17,   # RDS no public access
+            CKV_AWS_18,   # S3 access logging
+            CKV_AWS_19,   # S3 encryption
+            CKV_AWS_20,   # S3 no public ACL
+            CKV_AWS_21,   # S3 versioning
+            CKV_AWS_23,   # RDS deletion protection
+            CKV_AWS_25,   # SG no 0.0.0.0 ingress (except ALB)
+            CKV_AWS_28,   # RDS backup retention
+            CKV_AWS_54,   # SG no all protocol
+            CKV_AWS_57,   # S3 no public write
+            CKV_AWS_66,   # CloudWatch log group retention
+            CKV_AWS_67,   # CloudTrail log validation
+            CKV_AWS_76,   # ECS task definition log driver
+            CKV_AWS_79,   # EC2 IMDSv2 (ECS metadata)
+            CKV_AWS_86,   # CloudFront viewer HTTPS
+            CKV_AWS_86,   # CloudFront logging
+            CKV_AWS_91,   # Kinesis/CloudWatch encryption
+            CKV_AWS_92,   # ALB HTTPS listener
+            CKV_AWS_93,   # ALB drop invalid headers
+            CKV_AWS_97,   # Secrets Manager KMS
+            CKV_AWS_111,  # ECS readonly root filesystem
+            CKV_AWS_130,  # VPC subnet no public IP
+            CKV_AWS_131,  # ALB deletion protection
+            CKV_AWS_132,  # ECS task definition PID mode
+            CKV_AWS_150,  # S3 lifecycle configuration
+            CKV_AWS_172,  # RDS cluster deletion protection
+            CKV_AWS_224,  # ECS Fargate platform version
+            CKV_AWS_338   # CloudTrail S3 MFA delete
+          output_file_path: checkov-report.sarif
+          output_format: sarif
+
+      - name: Upload Checkov SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: checkov-report.sarif
+
+  # ─── SOC2 CONFORMANCE CHECK ───────────────────────────────────────────────
+  soc2-check:
+    name: SOC2 Conformance Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required SOC2 controls
+        run: |
+          echo "Checking SOC2 required resources..."
+          ERRORS=0
+
+          check_exists() {
+            if grep -r "$1" packages/modules/ --include="*.tf" -q; then
+              echo "✅ $2"
+            else
+              echo "❌ MISSING: $2"
+              ERRORS=$((ERRORS+1))
+            fi
+          }
+
+          check_exists "aws_cloudtrail"                "CloudTrail (CC7.2 - Audit logging)"
+          check_exists "is_multi_region_trail.*true"   "Multi-region CloudTrail (CC7.2)"
+          check_exists "enable_log_file_validation.*true" "CloudTrail log validation (CC7.2)"
+          check_exists "aws_guardduty_detector"        "GuardDuty (CC7.1 - Threat detection)"
+          check_exists "aws_securityhub_account"       "Security Hub (CC4.1 - Monitoring)"
+          check_exists "aws_config_configuration_recorder" "AWS Config (CC6.1 - Change management)"
+          check_exists "aws_wafv2_web_acl"             "WAF (CC6.6 - Boundary protection)"
+          check_exists "aws_vpc_endpoint"              "VPC Endpoints (CC6.7 - Transmission security)"
+          check_exists "storage_encrypted.*true"       "RDS encryption (CC6.1 - Data protection)"
+          check_exists "publicly_accessible.*false"    "No public DB access (CC6.1)"
+          check_exists "prevent_destroy.*true"         "Deletion protection (A1.2 - Availability)"
+          check_exists "aws_iam_account_password_policy" "IAM password policy (CC6.2)"
+          check_exists "aws_kms_key"                   "KMS customer-managed keys (CC6.1)"
+          check_exists "aws_cloudwatch_metric_alarm"   "CloudWatch alarms (CC7.3 - Incident response)"
+          check_exists "aws_flow_log"                  "VPC flow logs (CC6.1 - Network monitoring)"
+          check_exists "block_public_acls.*true"       "S3 public access block (CC6.1)"
+
+          if [ $ERRORS -gt 0 ]; then
+            echo ""
+            echo "❌ $ERRORS SOC2 control(s) missing. Fix before merging."
+            exit 1
+          else
+            echo ""
+            echo "✅ All SOC2 controls present."
+          fi
+
+  # ─── HIPAA CHECK ──────────────────────────────────────────────────────────
+  hipaa-check:
+    name: HIPAA Controls Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check HIPAA required controls
+        run: |
+          echo "Checking HIPAA required controls..."
+          ERRORS=0
+
+          check_exists() {
+            if grep -r "$1" packages/modules/ --include="*.tf" -q; then
+              echo "✅ $2"
+            else
+              echo "⚠️  REVIEW: $2"
+              ERRORS=$((ERRORS+1))
+            fi
+          }
+
+          check_exists "aws_kms_key"              "KMS CMK encryption (§164.312(a)(2)(iv))"
+          check_exists "enable_key_rotation.*true" "KMS key rotation (§164.312(a)(2)(iv))"
+          check_exists "aws_cloudtrail"            "Audit controls (§164.312(b))"
+          check_exists "aws_guardduty"             "Security incident monitoring (§164.308(a)(6))"
+          check_exists "backup_retention_period"   "Backup for availability (§164.310(d))"
+          check_exists "storage_encrypted.*true"   "PHI encryption at rest (§164.312(a)(2)(iv))"
+          check_exists "aws_secretsmanager"        "Access control to credentials (§164.312(d))"
+          check_exists "aws_vpc"                   "Network access controls (§164.312(a)(1))"
+          check_exists "aws_wafv2_web_acl"         "Transmission security (§164.312(e)(1))"
+
+          if [ $ERRORS -gt 0 ]; then
+            echo ""
+            echo "⚠️  $ERRORS HIPAA control(s) need review. Not all are auto-verifiable."
+          else
+            echo "✅ All automated HIPAA checks passed."
+          fi

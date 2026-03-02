@@ -1,0 +1,30 @@
+# Checkov configuration — run: checkov -d packages/modules --config-file .checkov.yaml
+framework:
+  - terraform
+
+directory:
+  - packages/modules
+
+output:
+  - cli
+  - sarif
+
+compact: true
+quiet: false
+
+# Checks to skip with documented reasons
+skip-check:
+  # CKV_AWS_111: read-only root filesystem — our app needs write access (tmp files)
+  # Override per-service as needed
+  - CKV_AWS_111
+  # CKV_AWS_338: S3 MFA delete on CloudTrail bucket — requires root MFA, managed separately
+  - CKV_AWS_338
+
+# Enforce these compliance frameworks
+check:
+  - CKV2_AWS_5   # SG attached to resource
+  - CKV2_AWS_12  # VPC flow logs
+  - CKV2_AWS_19  # EIP associated
+  - CKV2_AWS_28  # RDS Multi-AZ (warn)
+  - CKV2_AWS_61  # S3 lifecycle
+  - CKV2_AWS_62  # S3 event notifications
