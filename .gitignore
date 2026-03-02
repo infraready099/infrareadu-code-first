@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Next.js
+.next/
+out/
+
+# Build outputs
+dist/
+.turbo/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OpenTofu / Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+!*.tfvars.example
+.terraform.lock.hcl
+crash.log
+
+# Lambda build
+packages/runner/dist/
+packages/runner/.esbuild/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Secrets — never commit these
+**/secrets/
+**/*.pem
+**/*.key

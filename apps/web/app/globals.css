@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 0.5rem;
+  }
+
+  * {
+    @apply border-gray-800;
+  }
+
+  body {
+    @apply bg-gray-950 text-gray-100;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { @apply bg-gray-900; }
+  ::-webkit-scrollbar-thumb { @apply bg-gray-700 rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-gray-600; }
+}
+
+@layer components {
+  /* Deploy log terminal */
+  .deploy-log {
+    @apply font-mono text-sm bg-gray-900 rounded-lg p-4 overflow-y-auto;
+    max-height: 400px;
+  }
+
+  .deploy-log-line {
+    @apply flex gap-3 py-0.5;
+  }
+
+  .deploy-log-line.success { @apply text-green-400; }
+  .deploy-log-line.error { @apply text-red-400; }
+  .deploy-log-line.info { @apply text-gray-400; }
+  .deploy-log-line.warn { @apply text-yellow-400; }
+
+  /* Step wizard */
+  .wizard-step {
+    @apply flex items-center gap-3;
+  }
+
+  .wizard-step-num {
+    @apply w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold shrink-0;
+  }
+
+  .wizard-step-num.active { @apply bg-sky-500 text-white; }
+  .wizard-step-num.done { @apply bg-green-500 text-white; }
+  .wizard-step-num.pending { @apply bg-gray-800 text-gray-500; }
+
+  /* Card */
+  .card {
+    @apply bg-gray-900 border border-gray-800 rounded-xl p-6;
+  }
+
+  .card-sm {
+    @apply bg-gray-900 border border-gray-800 rounded-lg p-4;
+  }
+
+  /* Buttons */
+  .btn-primary {
+    @apply bg-sky-500 hover:bg-sky-400 text-white font-semibold px-4 py-2 rounded-lg
+           transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply bg-gray-800 hover:bg-gray-700 text-gray-200 font-medium px-4 py-2 rounded-lg
+           transition-colors duration-150 border border-gray-700;
+  }
+
+  .btn-danger {
+    @apply bg-red-900/30 hover:bg-red-900/50 text-red-400 font-medium px-4 py-2 rounded-lg
+           transition-colors duration-150 border border-red-800/50;
+  }
+
+  /* Module status badges */
+  .badge-pending { @apply bg-gray-800 text-gray-400 text-xs px-2 py-0.5 rounded-full font-medium; }
+  .badge-deploying { @apply bg-sky-900/50 text-sky-400 text-xs px-2 py-0.5 rounded-full font-medium; }
+  .badge-success { @apply bg-green-900/50 text-green-400 text-xs px-2 py-0.5 rounded-full font-medium; }
+  .badge-failed { @apply bg-red-900/50 text-red-400 text-xs px-2 py-0.5 rounded-full font-medium; }
+}
