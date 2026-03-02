@@ -29,7 +29,9 @@ resource "aws_wafv2_web_acl" "this" {
     name     = "AWSManagedRulesAmazonIpReputationList"
     priority = 10
 
-    override_action { none {} }
+    override_action {
+      none {}
+    }
 
     statement {
       managed_rule_group_statement {
@@ -50,7 +52,9 @@ resource "aws_wafv2_web_acl" "this" {
     name     = "RateLimitPerIP"
     priority = 20
 
-    action { block {} }
+    action {
+      block {}
+    }
 
     statement {
       rate_based_statement {
@@ -73,7 +77,9 @@ resource "aws_wafv2_web_acl" "this" {
       name     = "AWSManagedRulesSQLiRuleSet"
       priority = 30
 
-      override_action { none {} }
+      override_action {
+      none {}
+    }
 
       statement {
         managed_rule_group_statement {
@@ -97,7 +103,9 @@ resource "aws_wafv2_web_acl" "this" {
       name     = "AWSManagedRulesCommonRuleSet"
       priority = 40
 
-      override_action { none {} }
+      override_action {
+      none {}
+    }
 
       statement {
         managed_rule_group_statement {
@@ -107,7 +115,9 @@ resource "aws_wafv2_web_acl" "this" {
           # Exclude body size rule — breaks file uploads
           rule_action_override {
             name          = "SizeRestrictions_BODY"
-            action_to_use { count {} }
+            action_to_use {
+              count {}
+            }
           }
         }
       }
@@ -127,7 +137,9 @@ resource "aws_wafv2_web_acl" "this" {
       name     = "AWSManagedRulesKnownBadInputsRuleSet"
       priority = 50
 
-      override_action { none {} }
+      override_action {
+      none {}
+    }
 
       statement {
         managed_rule_group_statement {
@@ -151,7 +163,9 @@ resource "aws_wafv2_web_acl" "this" {
       name     = "GeoBlock"
       priority = 5
 
-      action { block {} }
+      action {
+        block {}
+      }
 
       statement {
         not_statement {

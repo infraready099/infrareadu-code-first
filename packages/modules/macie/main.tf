@@ -146,7 +146,7 @@ resource "aws_macie2_findings_filter" "high_severity" {
 }
 
 # Export findings configuration
-resource "aws_macie2_export_configuration" "this" {
+resource "aws_macie2_classification_export_configuration" "this" {
   s3_destination {
     bucket_name = aws_s3_bucket.macie_findings.id
     key_prefix  = "findings/"
@@ -234,7 +234,7 @@ resource "aws_ssm_parameter" "phi_tagging_guide" {
   description = "PHI resource tagging taxonomy for ${local.name}"
   type        = "String"
   tier        = "Standard"
-  kms_key_id  = var.kms_key_arn
+  key_id = var.kms_key_arn
 
   value = jsonencode({
     version     = "1.0"
