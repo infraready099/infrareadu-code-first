@@ -1,4 +1,5 @@
-# Checkov configuration — run: checkov -d packages/modules --config-file .checkov.yaml
+# Checkov configuration for InfraReady.io OpenTofu modules
+# Run locally: checkov -d packages/modules --config-file .checkov.yaml
 framework:
   - terraform
 
@@ -12,19 +13,27 @@ output:
 compact: true
 quiet: false
 
-# Checks to skip with documented reasons
+# Checks skipped with documented reasons — each skip requires justification
 skip-check:
-  # CKV_AWS_111: read-only root filesystem — our app needs write access (tmp files)
-  # Override per-service as needed
+  # CKV_AWS_111 — ECS read-only root filesystem
+  # Our app containers need write access to /tmp. Enable per-service as needed.
   - CKV_AWS_111
-  # CKV_AWS_338: S3 MFA delete on CloudTrail bucket — requires root MFA, managed separately
+
+  # CKV_AWS_338 — S3 MFA delete on CloudTrail bucket
+  # Enabling MFA delete requires root account MFA and a separate manual step.
+  # Documented in runbook: docs/compliance.md
   - CKV_AWS_338
 
-# Enforce these compliance frameworks
-check:
-  - CKV2_AWS_5   # SG attached to resource
-  - CKV2_AWS_12  # VPC flow logs
-  - CKV2_AWS_19  # EIP associated
-  - CKV2_AWS_28  # RDS Multi-AZ (warn)
-  - CKV2_AWS_61  # S3 lifecycle
-  - CKV2_AWS_62  # S3 event notifications
+  # CKV2_AWS_62 — S3 event notifications
+  # We use CloudTrail + Macie for S3 activity monitoring instead of S3 events.
+  # This provides stronger audit coverage than S3 event notifications alone.
+  - CKV2_AWS_62
+
+  # CKV2_AWS_5 — Security group not attached to resource
+  # Checkov cannot verify SG attachment at module level (caller attaches SGs).
+  # Runtime validation via AWS Config rule instead.
+  - CKV2_AWS_5
+
+  # CKV2_AWS_19 — EIP not associated
+  # We do not use standalone Elastic IPs — NAT Gateways use EIPs internally.
+  - CKV2_AWS_19

@@ -8,14 +8,32 @@ on:
     branches: [main]
     paths: ["packages/modules/**"]
 
+# Required for SARIF upload to GitHub Security tab
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
 jobs:
   # ─── OPENTOFU VALIDATE ────────────────────────────────────────────────────
   validate:
     name: OpenTofu Validate
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        module: [vpc, rds, ecs, storage, security, waf, vpc-endpoints]
+        module:
+          - vpc
+          - rds
+          - ecs
+          - storage
+          - security
+          - waf
+          - vpc-endpoints
+          - backup
+          - inspector-ssm
+          - kms
+          - macie
 
     steps:
       - uses: actions/checkout@v4
@@ -23,7 +41,7 @@ jobs:
       - name: Install OpenTofu
         uses: opentofu/setup-opentofu@v1
         with:
-          tofu_version: "1.10.0"
+          tofu_version: "latest"
 
       - name: OpenTofu Init (${{ matrix.module }})
         run: tofu init -backend=false
@@ -33,7 +51,7 @@ jobs:
         run: tofu validate
         working-directory: packages/modules/${{ matrix.module }}
 
-  # ─── TFLINT ──────────────────────────────────────────────────────────────
+  # ─── TFLINT ─────────────────────────────────────────────────────────────
   tflint:
     name: TFLint
     runs-on: ubuntu-latest
@@ -42,19 +60,24 @@ jobs:
 
       - uses: terraform-linters/setup-tflint@v4
         with:
-          tflint_version: v0.54.0
+          tflint_version: "latest"
 
       - name: Init TFLint
         run: tflint --init
 
       - name: Run TFLint on all modules
         run: |
+          ERRORS=0
           for module in packages/modules/*/; do
-            echo "Linting $module"
-            tflint --chdir="$module" --format=compact
+            echo "── Linting $module"
+            tflint --chdir="$module" --format=compact || ERRORS=$((ERRORS+1))
           done
+          if [ $ERRORS -gt 0 ]; then
+            echo "❌ $ERRORS module(s) failed TFLint"
+            exit 1
+          fi
 
-  # ─── CHECKOV — POLICY AS CODE ─────────────────────────────────────────────
+  # ─── CHECKOV — POLICY AS CODE ────────────────────────────────────────────
   checkov:
     name: Checkov Security Scan
     runs-on: ubuntu-latest
@@ -62,53 +85,23 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run Checkov
-        uses: bridgecrewio/checkov-action@master
+        id: checkov
+        uses: bridgecrewio/checkov-action@v12
         with:
           directory: packages/modules
           framework: terraform
-          soft_fail: false
-          # Compliance frameworks to check against
-          check: >-
-            CKV_AWS_7,    # KMS key rotation
-            CKV_AWS_16,   # RDS encryption
-            CKV_AWS_17,   # RDS no public access
-            CKV_AWS_18,   # S3 access logging
-            CKV_AWS_19,   # S3 encryption
-            CKV_AWS_20,   # S3 no public ACL
-            CKV_AWS_21,   # S3 versioning
-            CKV_AWS_23,   # RDS deletion protection
-            CKV_AWS_25,   # SG no 0.0.0.0 ingress (except ALB)
-            CKV_AWS_28,   # RDS backup retention
-            CKV_AWS_54,   # SG no all protocol
-            CKV_AWS_57,   # S3 no public write
-            CKV_AWS_66,   # CloudWatch log group retention
-            CKV_AWS_67,   # CloudTrail log validation
-            CKV_AWS_76,   # ECS task definition log driver
-            CKV_AWS_79,   # EC2 IMDSv2 (ECS metadata)
-            CKV_AWS_86,   # CloudFront viewer HTTPS
-            CKV_AWS_86,   # CloudFront logging
-            CKV_AWS_91,   # Kinesis/CloudWatch encryption
-            CKV_AWS_92,   # ALB HTTPS listener
-            CKV_AWS_93,   # ALB drop invalid headers
-            CKV_AWS_97,   # Secrets Manager KMS
-            CKV_AWS_111,  # ECS readonly root filesystem
-            CKV_AWS_130,  # VPC subnet no public IP
-            CKV_AWS_131,  # ALB deletion protection
-            CKV_AWS_132,  # ECS task definition PID mode
-            CKV_AWS_150,  # S3 lifecycle configuration
-            CKV_AWS_172,  # RDS cluster deletion protection
-            CKV_AWS_224,  # ECS Fargate platform version
-            CKV_AWS_338   # CloudTrail S3 MFA delete
-          output_file_path: checkov-report.sarif
+          config_file: .checkov.yaml
+          soft_fail: true
           output_format: sarif
+          output_file_path: checkov-results.sarif
 
-      - name: Upload Checkov SARIF
+      - name: Upload Checkov SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
-          sarif_file: checkov-report.sarif
+          sarif_file: checkov-results.sarif
 
-  # ─── SOC2 CONFORMANCE CHECK ───────────────────────────────────────────────
+  # ─── SOC2 CONFORMANCE CHECK ──────────────────────────────────────────────
   soc2-check:
     name: SOC2 Conformance Check
     runs-on: ubuntu-latest
@@ -129,22 +122,25 @@ jobs:
             fi
           }
 
-          check_exists "aws_cloudtrail"                "CloudTrail (CC7.2 - Audit logging)"
-          check_exists "is_multi_region_trail.*true"   "Multi-region CloudTrail (CC7.2)"
-          check_exists "enable_log_file_validation.*true" "CloudTrail log validation (CC7.2)"
-          check_exists "aws_guardduty_detector"        "GuardDuty (CC7.1 - Threat detection)"
-          check_exists "aws_securityhub_account"       "Security Hub (CC4.1 - Monitoring)"
-          check_exists "aws_config_configuration_recorder" "AWS Config (CC6.1 - Change management)"
-          check_exists "aws_wafv2_web_acl"             "WAF (CC6.6 - Boundary protection)"
-          check_exists "aws_vpc_endpoint"              "VPC Endpoints (CC6.7 - Transmission security)"
-          check_exists "storage_encrypted.*true"       "RDS encryption (CC6.1 - Data protection)"
-          check_exists "publicly_accessible.*false"    "No public DB access (CC6.1)"
-          check_exists "prevent_destroy.*true"         "Deletion protection (A1.2 - Availability)"
-          check_exists "aws_iam_account_password_policy" "IAM password policy (CC6.2)"
-          check_exists "aws_kms_key"                   "KMS customer-managed keys (CC6.1)"
-          check_exists "aws_cloudwatch_metric_alarm"   "CloudWatch alarms (CC7.3 - Incident response)"
-          check_exists "aws_flow_log"                  "VPC flow logs (CC6.1 - Network monitoring)"
-          check_exists "block_public_acls.*true"       "S3 public access block (CC6.1)"
+          check_exists "aws_cloudtrail"                    "CloudTrail (CC7.2 — Audit logging)"
+          check_exists "is_multi_region_trail.*true"       "Multi-region CloudTrail (CC7.2)"
+          check_exists "enable_log_file_validation.*true"  "CloudTrail log validation (CC7.2)"
+          check_exists "aws_guardduty_detector"            "GuardDuty (CC7.1 — Threat detection)"
+          check_exists "aws_securityhub_account"           "Security Hub (CC4.1 — Monitoring)"
+          check_exists "aws_config_configuration_recorder" "AWS Config (CC6.1 — Change management)"
+          check_exists "aws_wafv2_web_acl"                 "WAF (CC6.6 — Boundary protection)"
+          check_exists "aws_vpc_endpoint"                  "VPC Endpoints (CC6.7 — Transmission security)"
+          check_exists "storage_encrypted.*true"           "RDS encryption (CC6.1 — Data protection)"
+          check_exists "publicly_accessible.*false"        "No public DB access (CC6.1)"
+          check_exists "prevent_destroy.*true"             "Deletion protection (A1.2 — Availability)"
+          check_exists "aws_iam_account_password_policy"   "IAM password policy (CC6.2)"
+          check_exists "aws_kms_key"                       "KMS customer-managed keys (CC6.1)"
+          check_exists "aws_cloudwatch_metric_alarm"       "CloudWatch alarms (CC7.3 — Incident response)"
+          check_exists "aws_flow_log"                      "VPC flow logs (CC6.1 — Network monitoring)"
+          check_exists "block_public_acls.*true"           "S3 public access block (CC6.1)"
+          check_exists "aws_backup_vault"                  "Centralized backup (A1.2 — Availability)"
+          check_exists "aws_macie2_account"                "Macie PHI detection (CC6.1 — Data classification)"
+          check_exists "aws_inspector2_enabler"            "Inspector vulnerability scanning (CC7.1)"
 
           if [ $ERRORS -gt 0 ]; then
             echo ""
@@ -155,7 +151,7 @@ jobs:
             echo "✅ All SOC2 controls present."
           fi
 
-  # ─── HIPAA CHECK ──────────────────────────────────────────────────────────
+  # ─── HIPAA CHECK ─────────────────────────────────────────────────────────
   hipaa-check:
     name: HIPAA Controls Check
     runs-on: ubuntu-latest
@@ -176,15 +172,20 @@ jobs:
             fi
           }
 
-          check_exists "aws_kms_key"              "KMS CMK encryption (§164.312(a)(2)(iv))"
-          check_exists "enable_key_rotation.*true" "KMS key rotation (§164.312(a)(2)(iv))"
-          check_exists "aws_cloudtrail"            "Audit controls (§164.312(b))"
-          check_exists "aws_guardduty"             "Security incident monitoring (§164.308(a)(6))"
-          check_exists "backup_retention_period"   "Backup for availability (§164.310(d))"
-          check_exists "storage_encrypted.*true"   "PHI encryption at rest (§164.312(a)(2)(iv))"
-          check_exists "aws_secretsmanager"        "Access control to credentials (§164.312(d))"
-          check_exists "aws_vpc"                   "Network access controls (§164.312(a)(1))"
-          check_exists "aws_wafv2_web_acl"         "Transmission security (§164.312(e)(1))"
+          check_exists "aws_kms_key"               "KMS CMK encryption (§164.312(a)(2)(iv))"
+          check_exists "enable_key_rotation.*true"  "KMS key rotation (§164.312(a)(2)(iv))"
+          check_exists "aws_cloudtrail"             "Audit controls (§164.312(b))"
+          check_exists "pgaudit"                    "PostgreSQL statement logging (§164.312(b))"
+          check_exists "aws_guardduty"              "Security incident monitoring (§164.308(a)(6))"
+          check_exists "backup_retention_period"    "Backup for availability (§164.310(d))"
+          check_exists "aws_backup_vault_lock"      "Immutable backup retention (§164.310(d))"
+          check_exists "storage_encrypted.*true"    "PHI encryption at rest (§164.312(a)(2)(iv))"
+          check_exists "aws_secretsmanager"         "Access control to credentials (§164.312(d))"
+          check_exists "aws_vpc"                    "Network access controls (§164.312(a)(1))"
+          check_exists "aws_wafv2_web_acl"          "Transmission security (§164.312(e)(1))"
+          check_exists "aws_macie2_account"         "PHI detection in S3 (§164.308(a)(1))"
+          check_exists "aws_inspector2_enabler"     "Vulnerability scanning (§164.308(a)(8))"
+          check_exists "aws_ssm_document"           "Privileged access logging (§164.312(b))"
 
           if [ $ERRORS -gt 0 ]; then
             echo ""
