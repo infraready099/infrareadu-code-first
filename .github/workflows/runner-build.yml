@@ -1,0 +1,71 @@
+name: Build & Push Runner Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/runner/**"
+      - "packages/modules/**"
+      - ".github/workflows/runner-build.yml"
+
+permissions:
+  id-token: write   # OIDC token for AWS auth (no long-lived keys)
+  contents: read
+
+jobs:
+  build-and-push:
+    name: Build Runner Container
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: packages/runner/package.json
+
+      - name: Install runner dependencies
+        run: npm ci
+        working-directory: packages/runner
+
+      - name: Build runner bundle
+        run: npm run build
+        working-directory: packages/runner
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          ECR_REPOSITORY: infraready-runner
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build \
+            -f packages/runner/Dockerfile \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+            .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+        id: build
+
+      - name: Update Lambda function image
+        env:
+          FUNCTION_NAME: infraready-runner
+          IMAGE_URI: ${{ steps.build.outputs.IMAGE_URI }}
+        run: |
+          aws lambda update-function-code \
+            --function-name $FUNCTION_NAME \
+            --image-uri $IMAGE_URI
+          echo "✅ Lambda updated to $IMAGE_URI"

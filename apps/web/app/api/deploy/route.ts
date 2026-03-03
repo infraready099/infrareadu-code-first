@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
   // Verify project belongs to user
   const { data: project } = await supabase
     .from("projects")
-    .select("id, name, aws_role_arn, aws_external_id, aws_region")
+    .select("id, name, aws_role_arn, aws_external_id, aws_region, aws_account_id")
     .eq("id", projectId)
     .eq("user_id", user.id)
     .single();
@@ -81,14 +81,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Failed to create deployment" }, { status: 500 });
   }
 
+  // Persist region to the project row so the detail page can show it
+  await supabase
+    .from("projects")
+    .update({ aws_region: config.aws_region })
+    .eq("id", projectId);
+
   // Queue the deployment job
   const jobPayload = {
     deploymentId: deployment.id,
     projectId,
     userId: user.id,
     modules,
-    config: { ...config, aws_region: project.aws_region ?? config.aws_region },
-    awsRoleArn: project.aws_role_arn,
+    config: {
+      ...config,
+      project_name: project.name.toLowerCase().replace(/[^a-z0-9-]/g, "-"),
+      aws_region:   project.aws_region ?? config.aws_region,
+    },
+    awsRoleArn:    project.aws_role_arn,
     awsExternalId: project.aws_external_id,
   };
 
