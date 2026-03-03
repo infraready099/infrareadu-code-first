@@ -4,12 +4,13 @@ import LoginButton from "./login-button";
 
 export const metadata: Metadata = { title: "Sign In" };
 
-export default function LoginPage({
+export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: { error?: string };
+  searchParams: Promise<{ error?: string }>;
 }) {
-  const hasError = searchParams.error === "auth";
+  const params = await searchParams;
+  const hasError = params.error === "auth";
 
   return (
     <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
