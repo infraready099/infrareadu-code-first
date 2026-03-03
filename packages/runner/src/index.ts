@@ -9,6 +9,8 @@ import { SQSEvent, SQSRecord } from "aws-lambda";
 import { STSClient, AssumeRoleCommand } from "@aws-sdk/client-sts";
 import { execOpenTofu } from "./opentofu";
 import { createClient } from "@supabase/supabase-js";
+import { generateConfig, ModuleType, IaCEngine } from "./services/terraform-generator";
+import { scanHcl, formatScanReport, DEFAULT_FRAMEWORKS, DEFAULT_BLOCK_ON } from "./services/security-scan";
 
 const sts = new STSClient({ region: process.env.AWS_REGION ?? "us-east-1" });
 
@@ -59,9 +61,45 @@ async function processRecord(record: SQSRecord): Promise<void> {
 
     await appendLog(deploymentId, "success", `[AWS] Role assumed successfully`);
 
-    // Step 2: Run OpenTofu for each requested module in order
-    const moduleOrder = ["vpc", "rds", "ecs", "storage", "security"];
+    // Step 2: Security scan — generate HCL for all modules and scan before touching AWS
+    await appendLog(deploymentId, "info", "\n[Security] Running compliance scan (SOC2, HIPAA, CIS)...");
+
+    const moduleOrder = ["vpc", "rds", "ecs", "storage", "security", "waf", "kms", "backup"];
     const orderedModules = moduleOrder.filter((m) => job.modules.includes(m));
+
+    for (const moduleName of orderedModules) {
+      const generatedHcl = generateConfig({
+        type:        moduleName as ModuleType,
+        engine:      (job.config.engine as IaCEngine) ?? "opentofu",
+        projectName: job.config.project_name as string,
+        environment: (job.config.environment as string) ?? "production",
+        region:      (job.config.aws_region as string) ?? "us-east-1",
+        roleArn:     job.awsRoleArn,
+        externalId:  job.awsExternalId,
+        variables:   job.config,
+      });
+
+      const scanResult = await scanHcl({
+        hclContent:      generatedHcl.hcl,
+        frameworks:      DEFAULT_FRAMEWORKS,
+        blockOnSeverity: DEFAULT_BLOCK_ON,
+        projectName:     job.config.project_name as string,
+        moduleType:      moduleName,
+      });
+
+      await appendLog(deploymentId, scanResult.passed ? "success" : "error",
+        formatScanReport(scanResult));
+
+      if (!scanResult.passed) {
+        throw new Error(
+          `Security scan BLOCKED deployment of module "${moduleName}". ` +
+          `${scanResult.summary.critical} critical, ${scanResult.summary.high} high severity findings. ` +
+          `Fix the issues above and redeploy.`
+        );
+      }
+    }
+
+    await appendLog(deploymentId, "success", "[Security] All modules passed compliance scan.\n");
 
     const outputs: Record<string, Record<string, unknown>> = {};
 

@@ -12,7 +12,8 @@ FROM public.ecr.aws/lambda/nodejs:20
 # Version pinned for reproducibility — update here + in CI when upgrading.
 ARG TOFU_VERSION=1.9.0
 
-RUN yum install -y wget unzip tar gzip && \
+RUN yum install -y wget unzip tar gzip python3 python3-pip && \
+    pip3 install --no-cache-dir checkov && \
     wget -q "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_amd64.zip" \
          -O /tmp/tofu.zip && \
     mkdir -p /opt/opentofu && \
