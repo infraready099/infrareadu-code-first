@@ -8,14 +8,15 @@ Orchestration playbook. Use this to decide which agent handles a task, how to ha
 
 | Agent | Model | Cost | What it does |
 |-------|-------|------|-------------|
+| `frontend-designer` | Sonnet | $$$$ | ALL UI/UX — landing page, dashboard, components, animations, design system. Has UI UX Pro Max, 21st.dev, Nano Banana 2, Google Stitch |
+| `principal-engineer` | Sonnet | $$$$ | Backend APIs, infra, OpenTofu modules, DB schema, architecture decisions |
 | `module-builder` | Haiku | $ | Scaffold new OpenTofu modules |
 | `ci-debugger` | Haiku | $ | Diagnose + fix GitHub Actions failures |
 | `compliance-checker` | Haiku | $ | SOC2/HIPAA audit of modules (read-only) |
 | `research-agent` | Haiku | $ | Market research, competitor intel |
 | `explorer` | Haiku | $ | Find files/code in the codebase |
-| `principal-engineer` | Sonnet | $$$$ | Complex architecture, backend/frontend code |
 
-**Rule: Use Haiku agents first. Only escalate to Sonnet (`principal-engineer`) when the task requires real architectural reasoning or complex multi-file code.**
+**Rule: Use Haiku agents first for discovery. `frontend-designer` owns all visual work. `principal-engineer` owns all backend/infra. Never cross these boundaries.**
 
 ---
 
@@ -42,9 +43,16 @@ Orchestration playbook. Use this to decide which agent handles a task, how to ha
 1. → `explorer`: fast file/pattern search, returns exact paths + line numbers
 2. Feed results to whichever agent needs them next
 
-### "Build a new backend API endpoint / frontend component"
+### "Build a UI component / page / landing page section"
+1. → `explorer`: find existing component patterns to follow
+2. → `frontend-designer`: build the component with full design system
+
+### "Build a new backend API endpoint"
 1. → `explorer`: find existing patterns to follow
 2. → `principal-engineer`: write the actual code
+
+### "Redesign or improve a page visually"
+1. → `frontend-designer`: full ownership, no need for principal-engineer
 
 ### "Architecture decision: should we use X or Y?"
 1. → `research-agent` (if external data needed): get market context

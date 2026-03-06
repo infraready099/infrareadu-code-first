@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "@21st-dev/magic": {
+      "command": "npx",
+      "args": ["-y", "@21st-dev/magic@latest", "API_KEY=REPLACE_WITH_21ST_DEV_API_KEY"],
+      "description": "21st.dev Magic — generate polished UI components. Get key at https://21st.dev/magic/console"
+    },
+    "nanana": {
+      "command": "npx",
+      "args": ["-y", "@nanana-ai/mcp-server-nano-banana"],
+      "env": {
+        "NANANA_API_TOKEN": "REPLACE_WITH_NANANA_API_TOKEN"
+      },
+      "description": "Nano Banana 2 — AI image generation via Gemini 2.5 Flash. Get token at https://nanana.app"
+    },
+    "stitch": {
+      "command": "npx",
+      "args": ["@_davideast/stitch-mcp", "proxy"],
+      "env": {
+        "STITCH_API_KEY": "REPLACE_WITH_STITCH_API_KEY"
+      },
+      "description": "Google Stitch — AI UI design from text prompts. Get key from https://stitch.withgoogle.com"
+    }
+  }
+}
