@@ -12,7 +12,7 @@
   }
 
   body {
-    @apply bg-gray-950 text-gray-100;
+    @apply bg-[#04091A] text-gray-100;
   }
 
   /* Custom scrollbar */

@@ -1,13 +1,19 @@
 import Link from "next/link";
 import { createServerClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { LayoutDashboard, Layers, Settings, LogOut, Zap } from "lucide-react";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  if (!user) redirect("/login");
+  if (!user) {
+    // Preserve the intended destination so post-login the user lands on the right page
+    const headersList = await headers();
+    const nextPath = headersList.get("x-pathname") ?? "/projects/new";
+    redirect(`/login?next=${encodeURIComponent(nextPath)}`);
+  }
 
   return (
     <div className="flex h-screen bg-gray-950">

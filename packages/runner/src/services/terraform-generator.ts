@@ -12,8 +12,89 @@
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type ModuleType = "vpc" | "rds" | "ecs" | "storage" | "security" | "waf" | "kms" | "backup";
-export type IaCEngine  = "opentofu" | "terraform";
+export type ModuleType =
+  | "vpc" | "rds" | "ecs" | "storage" | "security" | "waf" | "kms" | "backup"
+  | "app-runner" | "aurora-serverless";
+
+export type IaCEngine = "opentofu" | "terraform";
+
+export type AppType = "nextjs" | "python" | "java" | "ai" | "other";
+
+export type DeploymentTier = "lean" | "production" | "scale";
+
+// ─── Deployment tiers ─────────────────────────────────────────────────────────
+// Pre-configured module bundles with cost estimates for common use cases.
+
+export interface TierDefinition {
+  name:        string;
+  tagline:     string;
+  modules:     ModuleType[];
+  monthlyCost: string;
+  bestFor:     string[];
+}
+
+export const DEPLOYMENT_TIERS: Record<DeploymentTier, TierDefinition> = {
+  lean: {
+    name:        "Lean",
+    tagline:     "Fast MVP with room to grow",
+    modules:     ["vpc", "ecs", "rds", "security"],
+    monthlyCost: "$45–65/mo",
+    bestFor:     ["Side projects", "Early-stage MVPs", "Internal tools"],
+  },
+  production: {
+    name:        "Production",
+    tagline:     "HA-ready with security baseline",
+    modules:     ["vpc", "ecs", "rds", "storage", "security"],
+    monthlyCost: "$100–150/mo",
+    bestFor:     ["Launched products", "Paid customers", "SOC2 prep"],
+  },
+  scale: {
+    name:        "Scale",
+    tagline:     "Full compliance + enterprise-grade",
+    modules:     ["vpc", "ecs", "aurora-serverless", "storage", "security", "waf", "kms", "backup"],
+    monthlyCost: "$300+/mo",
+    bestFor:     ["Enterprise pilots", "SOC2/HIPAA required", "High-traffic apps"],
+  },
+};
+
+// ─── App type port defaults ───────────────────────────────────────────────────
+
+export const APP_TYPE_DEFAULTS: Record<AppType, { port: number; cpu: number; memory: number }> = {
+  nextjs: { port: 3000, cpu: 256,  memory: 512  },
+  python: { port: 8000, cpu: 256,  memory: 512  },
+  java:   { port: 8080, cpu: 512,  memory: 1024 },
+  ai:     { port: 8000, cpu: 1024, memory: 2048 },
+  other:  { port: 3000, cpu: 256,  memory: 512  },
+};
+
+// ─── App type detection from repo file manifest ───────────────────────────────
+// Pass an array of filenames/paths from the repo root to detect the app type.
+
+export function detectAppType(files: string[]): AppType {
+  const names = files.map(f => f.toLowerCase());
+  const has = (pattern: string | RegExp) =>
+    names.some(n => typeof pattern === "string" ? n.includes(pattern) : pattern.test(n));
+
+  // AI / ML apps — check before Python (many AI apps are Python)
+  if (has("requirements.txt") && (has("torch") || has("tensorflow") || has("transformers") || has("cuda"))) return "ai";
+  if (has(/llm|gpt|openai|langchain|llamaindex|huggingface/)) return "ai";
+  if (has("model.py") || has("inference.py") || has("train.py")) return "ai";
+
+  // Java / JVM
+  if (has("pom.xml") || has("build.gradle") || has("settings.gradle")) return "java";
+  if (has(".java") || has("application.properties") || has("application.yml")) return "java";
+
+  // Python
+  if (has("requirements.txt") || has("pyproject.toml") || has("setup.py") || has("pipfile")) return "python";
+  if (has("main.py") || has("app.py") || has("manage.py") || has("asgi.py")) return "python";
+
+  // Next.js / Node
+  if (has("next.config") || has("next.config.js") || has("next.config.ts")) return "nextjs";
+  if (has("package.json") && (has("pages/") || has("app/") || has("src/app/"))) return "nextjs";
+  if (has("package.json")) return "nextjs"; // default Node assumption
+
+  return "other";
+}
 
 export interface ModuleConfig {
   type:        ModuleType;
@@ -77,7 +158,10 @@ function validateConfig(config: ModuleConfig): void {
   }
 }
 
-const SUPPORTED_MODULES: ModuleType[] = ["vpc", "rds", "ecs", "storage", "security", "waf", "kms", "backup"];
+const SUPPORTED_MODULES: ModuleType[] = [
+  "vpc", "rds", "ecs", "storage", "security", "waf", "kms", "backup",
+  "app-runner", "aurora-serverless",
+];
 
 // ─── versions block ───────────────────────────────────────────────────────────
 
@@ -277,6 +361,41 @@ function buildModuleVariables(config: ModuleConfig): Record<string, unknown> {
         resource_arns:      config.variables.resource_arns ?? [],
       };
 
+    case "app-runner": {
+      const appType = (config.variables.app_type as AppType) ?? "other";
+      const defaults = APP_TYPE_DEFAULTS[appType];
+      return {
+        ...base,
+        container_port:        config.variables.container_port     ?? defaults.port,
+        cpu:                   config.variables.cpu                ?? `${defaults.cpu / 1024} vCPU`,
+        memory:                config.variables.memory             ?? `${defaults.memory / 1024} GB`,
+        min_concurrency:       config.variables.min_concurrency    ?? 1,
+        max_concurrency:       config.variables.max_concurrency    ?? 10,
+        auto_deploy:           config.variables.auto_deploy        ?? true,
+        health_check_path:     config.variables.health_check_path  ?? "/health",
+        environment_variables: config.variables.environment_variables ?? {},
+        log_retention_days:    config.variables.log_retention_days ?? 30,
+      };
+    }
+
+    case "aurora-serverless":
+      return {
+        ...base,
+        vpc_id:               config.variables.vpc_id              ?? "",
+        private_subnet_ids:   config.variables.private_subnet_ids  ?? [],
+        app_security_group_id: config.variables.app_sg_id          ?? "",
+        engine:               config.variables.engine              ?? "aurora-postgresql",
+        engine_version:       config.variables.engine_version      ?? "16.4",
+        db_name:              config.variables.db_name             ?? config.projectName.replace(/-/g, "_"),
+        db_username:          config.variables.db_username         ?? "appuser",
+        min_capacity:         config.variables.min_capacity        ?? 0.5,
+        max_capacity:         config.variables.max_capacity        ?? 4,
+        backup_retention_days: config.variables.backup_retention_days ?? 7,
+        deletion_protection:  config.environment === "production",
+        skip_final_snapshot:  config.environment !== "production",
+        enable_reader:        config.variables.enable_reader        ?? false,
+      };
+
     default:
       return { ...base, ...config.variables };
   }
@@ -340,6 +459,24 @@ const PLAN_SUMMARIES: Record<ModuleType, (config: ModuleConfig) => string[]> = {
     `Retention: ${(c.variables.retention_days as number) ?? 30} days`,
     "Point-in-time recovery",
   ],
+  "app-runner": (c) => [
+    `AWS App Runner service (${(c.variables.cpu as string) ?? "0.25 vCPU"} / ${(c.variables.memory as string) ?? "0.5 GB"})`,
+    "ECR repository for Docker images",
+    `Auto-deploy on ECR push: ${(c.variables.auto_deploy as boolean) !== false ? "enabled" : "disabled"}`,
+    `Min concurrency: ${(c.variables.min_concurrency as number) ?? 1} (${(c.variables.min_concurrency as number) === 0 ? "scale-to-zero, cold starts apply" : "always warm"})`,
+    "HTTPS endpoint — no ALB or certificate management needed",
+    "Auto-scaling up to 10 instances",
+    "X-Ray tracing + CloudWatch logs",
+  ],
+  "aurora-serverless": (c) => [
+    `Aurora Serverless v2 (${(c.variables.engine as string) ?? "aurora-postgresql"} ${(c.variables.engine_version as string) ?? "16.4"})`,
+    `Scales: ${(c.variables.min_capacity as number) ?? 0.5}–${(c.variables.max_capacity as number) ?? 4} ACUs automatically`,
+    "Encrypted at rest (KMS) — SOC2 CC6.1",
+    `Automated backups — ${(c.variables.backup_retention_days as number) ?? 7} days retention`,
+    c.environment === "production" ? "Deletion protection ENABLED" : "Deletion protection disabled",
+    "DB credentials → AWS Secrets Manager",
+    (c.variables.enable_reader as boolean) ? "Read replica enabled" : "Single writer (add reader for HA)",
+  ],
 };
 
 function getPlanSummary(config: ModuleConfig): string {
@@ -384,6 +521,27 @@ const COST_ESTIMATES: Record<ModuleType, (config: ModuleConfig) => string> = {
   waf:      () => `~$5/mo (WAF WebACL $1/mo + $0.60/million requests)`,
   kms:      () => `~$1/mo ($1/key/month + $0.03/10K API calls)`,
   backup:   () => `~$5/mo ($0.05/GB-month backup storage)`,
+  "app-runner": (c) => {
+    const minConc = (c.variables.min_concurrency as number) ?? 1;
+    const cpuStr  = (c.variables.cpu as string) ?? "0.25 vCPU";
+    const memStr  = (c.variables.memory as string) ?? "0.5 GB";
+    const cpuNum  = parseFloat(cpuStr);
+    const memNum  = parseFloat(memStr);
+    // App Runner: $0.064/vCPU/hr + $0.007/GB/hr × min instances (always-on portion)
+    const alwaysOnCost = minConc > 0 ? Math.round((cpuNum * 0.064 + memNum * 0.007) * 730 * minConc) : 0;
+    const note = minConc === 0
+      ? "Scale-to-zero: ~$0 idle. Pay $0.064/vCPU/hr + $0.007/GB/hr only while handling requests."
+      : `~$${alwaysOnCost}/mo (${minConc} warm instance) + per-request compute above that`;
+    return `${note}\nECR storage: ~$0.10/GB-month. No ALB cost.`;
+  },
+  "aurora-serverless": (c) => {
+    const minCap = (c.variables.min_capacity as number) ?? 0.5;
+    const maxCap = (c.variables.max_capacity as number) ?? 4;
+    // Aurora Serverless v2: ~$0.12/ACU/hr in us-east-1
+    const minCost = Math.round(minCap * 0.12 * 730);
+    const maxCost = Math.round(maxCap * 0.12 * 730);
+    return `~$${minCost}–$${maxCost}/mo depending on load\n($0.12/ACU/hr, min ${minCap} ACU = $${minCost}/mo always-on)\n+ Storage: $0.10/GB-month`;
+  },
 };
 
 function estimateMonthlyCost(config: ModuleConfig): string {

@@ -10,10 +10,11 @@ export default function LoginButton() {
   async function handleGitHubLogin() {
     setLoading(true);
     const supabase = createClient();
+    const next = new URLSearchParams(window.location.search).get("next") ?? "/projects";
     await supabase.auth.signInWithOAuth({
       provider: "github",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
         scopes: "read:user user:email repo",
       },
     });

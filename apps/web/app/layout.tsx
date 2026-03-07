@@ -19,7 +19,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
-      <body className="bg-gray-950 text-gray-100 antialiased">{children}</body>
+      <body className="bg-[#04091A] text-gray-100 antialiased">{children}</body>
     </html>
   );
 }

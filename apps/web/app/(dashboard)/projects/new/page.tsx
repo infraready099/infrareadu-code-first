@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Github,
   ExternalLink,
-  CheckCircle,
+  CheckCircle2,
   Loader2,
   AlertCircle,
   ArrowLeft,
@@ -14,6 +14,10 @@ import {
   Database,
   Box,
   Globe,
+  Cpu,
+  Zap,
+  TrendingUp,
+  Check,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -22,10 +26,13 @@ import { createClient } from "@/lib/supabase/client";
 // ---------------------------------------------------------------------------
 
 type Step = 1 | 2 | 3;
+type AppType = "nextjs" | "python" | "java" | "ai" | "other";
+type DeploymentTier = "lean" | "production" | "scale";
 
 interface StepOneData {
   repoUrl: string;
   projectName: string;
+  appType: AppType;
 }
 
 interface StepTwoData {
@@ -40,11 +47,14 @@ type Environment = "production" | "staging";
 interface StepThreeData {
   awsRegion: string;
   environment: Environment;
+  deploymentTier: DeploymentTier;
   modules: {
     ecs: boolean;
     rds: boolean;
     storage: boolean;
     security: boolean;
+    "app-runner": boolean;
+    "aurora-serverless": boolean;
   };
   containerPort: number;
   containerCpu: number;
@@ -55,11 +65,68 @@ interface StepThreeData {
 }
 
 // ---------------------------------------------------------------------------
+// App type defaults
+// ---------------------------------------------------------------------------
+
+const APP_DEFAULTS: Record<AppType, { port: number; cpu: number; memory: number }> = {
+  nextjs: { port: 3000, cpu: 256,  memory: 512  },
+  python: { port: 8000, cpu: 256,  memory: 512  },
+  java:   { port: 8080, cpu: 512,  memory: 1024 },
+  ai:     { port: 8000, cpu: 1024, memory: 2048 },
+  other:  { port: 3000, cpu: 256,  memory: 512  },
+};
+
+// ---------------------------------------------------------------------------
+// Tier definitions
+// ---------------------------------------------------------------------------
+
+const TIERS: Record<DeploymentTier, {
+  label: string;
+  tagline: string;
+  cost: string;
+  bestFor: string;
+  modules: (keyof StepThreeData["modules"])[];
+  accent: string;
+  ring: string;
+  badge: string;
+}> = {
+  lean: {
+    label:   "Lean",
+    tagline: "Fast MVP, minimal cost",
+    cost:    "$45–65/mo",
+    bestFor: "Side projects & early MVPs",
+    modules: ["ecs", "rds", "security"],
+    accent:  "text-cyan-400",
+    ring:    "ring-cyan-500/40 border-cyan-500/30",
+    badge:   "bg-cyan-500/10 text-cyan-400",
+  },
+  production: {
+    label:   "Production",
+    tagline: "HA-ready + SOC2 baseline",
+    cost:    "$100–150/mo",
+    bestFor: "Launched products with users",
+    modules: ["ecs", "rds", "storage", "security"],
+    accent:  "text-violet-400",
+    ring:    "ring-violet-500/40 border-violet-500/30",
+    badge:   "bg-violet-500/10 text-violet-400",
+  },
+  scale: {
+    label:   "Scale",
+    tagline: "Auto-scaling + full compliance",
+    cost:    "$300+/mo",
+    bestFor: "Enterprise pilots & SOC2/HIPAA",
+    modules: ["ecs", "aurora-serverless", "storage", "security"],
+    accent:  "text-amber-400",
+    ring:    "ring-amber-500/40 border-amber-500/30",
+    badge:   "bg-amber-500/10 text-amber-400",
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function generateExternalId(): string {
-  // crypto.randomUUID is available in all modern browsers
   return crypto.randomUUID();
 }
 
@@ -86,7 +153,17 @@ function isValidRoleArn(arn: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Step indicator
+// Shared input styles
+// ---------------------------------------------------------------------------
+
+const inputCls =
+  "w-full bg-[#0d1117] border border-white/[0.08] rounded-lg px-3.5 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500/50 transition-all";
+
+const selectCls =
+  "w-full bg-[#0d1117] border border-white/[0.08] rounded-lg px-3.5 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500/50 transition-all";
+
+// ---------------------------------------------------------------------------
+// Step progress bar
 // ---------------------------------------------------------------------------
 
 const STEPS = [
@@ -95,36 +172,36 @@ const STEPS = [
   { num: 3, label: "Configure" },
 ];
 
-function StepIndicator({ current }: { current: Step }) {
+function StepBar({ current }: { current: Step }) {
   return (
-    <div className="flex items-center gap-0 mb-8">
+    <div className="flex items-center gap-0 mb-10">
       {STEPS.map((s, i) => {
-        const state: "active" | "done" | "pending" =
-          s.num === current ? "active" : s.num < current ? "done" : "pending";
+        const done   = s.num < current;
+        const active = s.num === current;
         return (
           <div key={s.num} className="flex items-center">
-            <div className="wizard-step">
-              <div className={`wizard-step-num ${state}`}>
-                {state === "done" ? <CheckCircle className="w-4 h-4" /> : s.num}
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold transition-all ${
+                  done
+                    ? "bg-emerald-500 text-white"
+                    : active
+                    ? "bg-sky-500 text-white ring-4 ring-sky-500/20"
+                    : "bg-gray-800 text-gray-500"
+                }`}
+              >
+                {done ? <Check className="w-3.5 h-3.5" /> : s.num}
               </div>
               <span
                 className={`text-sm font-medium ${
-                  state === "active"
-                    ? "text-white"
-                    : state === "done"
-                    ? "text-green-400"
-                    : "text-gray-500"
+                  active ? "text-white" : done ? "text-emerald-400" : "text-gray-500"
                 }`}
               >
                 {s.label}
               </span>
             </div>
             {i < STEPS.length - 1 && (
-              <div
-                className={`w-12 h-px mx-3 ${
-                  s.num < current ? "bg-green-700" : "bg-gray-800"
-                }`}
-              />
+              <div className={`w-16 h-px mx-4 ${done ? "bg-emerald-800" : "bg-gray-800"}`} />
             )}
           </div>
         );
@@ -134,8 +211,16 @@ function StepIndicator({ current }: { current: Step }) {
 }
 
 // ---------------------------------------------------------------------------
-// Step 1 — Connect GitHub Repo
+// Step 1 — GitHub repo + app type
 // ---------------------------------------------------------------------------
+
+const APP_TYPE_OPTIONS: { value: AppType; label: string; icon: string; hint: string }[] = [
+  { value: "nextjs",  label: "Next.js",       icon: "N", hint: "Port 3000" },
+  { value: "python",  label: "Python",         icon: "Py", hint: "Port 8000" },
+  { value: "java",    label: "Java / Spring",  icon: "Jv", hint: "Port 8080" },
+  { value: "ai",      label: "AI / ML",        icon: "AI", hint: "1+ vCPU" },
+  { value: "other",   label: "Other",          icon: "···", hint: "Custom" },
+];
 
 function StepOne({
   data,
@@ -147,51 +232,33 @@ function StepOne({
   onContinue: () => Promise<void>;
 }) {
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError]     = useState("");
 
   const urlError = data.repoUrl && !isValidGithubUrl(data.repoUrl)
-    ? "Must be a valid github.com repository URL (e.g. https://github.com/username/my-app)"
+    ? "Must be a valid github.com URL"
     : "";
 
   async function handleContinue() {
-    if (!isValidGithubUrl(data.repoUrl)) {
-      setError("Please enter a valid GitHub repository URL.");
-      return;
-    }
-    if (!data.projectName.trim()) {
-      setError("Project name is required.");
-      return;
-    }
+    if (!isValidGithubUrl(data.repoUrl)) { setError("Enter a valid GitHub repository URL."); return; }
+    if (!data.projectName.trim())         { setError("Project name is required.");           return; }
     setError("");
     setLoading(true);
     try {
       await onContinue();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+      setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="card">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-9 h-9 bg-gray-800 rounded-lg flex items-center justify-center shrink-0">
-          <Github className="w-5 h-5 text-gray-300" />
-        </div>
-        <div>
-          <h2 className="font-semibold text-white">Connect your GitHub repository</h2>
-          <p className="text-sm text-gray-400">
-            We&apos;ll deploy infrastructure for this repo.
-          </p>
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-300 mb-1.5">
-            Repository URL
-          </label>
+    <div className="space-y-5">
+      {/* Repo URL */}
+      <div>
+        <label className="block text-sm font-medium text-gray-300 mb-2">Repository URL</label>
+        <div className="relative">
+          <Github className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
           <input
             type="url"
             placeholder="https://github.com/username/my-app"
@@ -201,45 +268,75 @@ function StepOne({
               const autoName = repoNameFromUrl(url);
               onChange({ repoUrl: url, ...(autoName ? { projectName: autoName } : {}) });
             }}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+            className={`${inputCls} pl-10`}
           />
-          {urlError && (
-            <p className="mt-1.5 text-xs text-red-400">{urlError}</p>
-          )}
         </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-300 mb-1.5">
-            Project name
-          </label>
-          <input
-            type="text"
-            placeholder="my-app"
-            value={data.projectName}
-            onChange={(e) => onChange({ projectName: e.target.value })}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
-          />
-          <p className="mt-1.5 text-xs text-gray-500">
-            This is the display name for your project inside InfraReady.
-          </p>
-        </div>
-
-        {error && (
-          <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-red-900/30 border border-red-800/50 text-sm text-red-400">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            {error}
-          </div>
-        )}
-
-        <button
-          onClick={handleContinue}
-          disabled={loading || !!urlError || !data.repoUrl || !data.projectName}
-          className="btn-primary w-full flex items-center justify-center gap-2"
-        >
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-          {loading ? "Creating project..." : "Continue"}
-        </button>
+        {urlError && <p className="mt-1.5 text-xs text-red-400">{urlError}</p>}
       </div>
+
+      {/* Project name */}
+      <div>
+        <label className="block text-sm font-medium text-gray-300 mb-2">Project name</label>
+        <input
+          type="text"
+          placeholder="my-app"
+          value={data.projectName}
+          onChange={(e) => onChange({ projectName: e.target.value })}
+          className={inputCls}
+        />
+      </div>
+
+      {/* App type */}
+      <div>
+        <label className="block text-sm font-medium text-gray-300 mb-2">
+          App type
+          <span className="ml-2 text-xs text-gray-500 font-normal">Sets container defaults</span>
+        </label>
+        <div className="grid grid-cols-5 gap-2">
+          {APP_TYPE_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => onChange({ appType: opt.value })}
+              className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl border text-center transition-all cursor-pointer ${
+                data.appType === opt.value
+                  ? "border-sky-500/50 bg-sky-500/10 ring-1 ring-sky-500/30"
+                  : "border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12] hover:bg-white/[0.04]"
+              }`}
+            >
+              <span
+                className={`text-xs font-bold font-mono ${
+                  data.appType === opt.value ? "text-sky-400" : "text-gray-400"
+                }`}
+              >
+                {opt.icon}
+              </span>
+              <span className={`text-xs font-medium leading-tight ${
+                data.appType === opt.value ? "text-white" : "text-gray-400"
+              }`}>
+                {opt.label}
+              </span>
+              <span className="text-[10px] text-gray-600">{opt.hint}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {error && (
+        <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          {error}
+        </div>
+      )}
+
+      <button
+        onClick={handleContinue}
+        disabled={loading || !!urlError || !data.repoUrl || !data.projectName}
+        className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-sky-500 hover:bg-sky-400 disabled:bg-sky-500/40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all"
+      >
+        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+        {loading ? "Creating project…" : "Continue"}
+      </button>
     </div>
   );
 }
@@ -261,8 +358,8 @@ function StepTwo({
   onContinue: () => void;
   onBack: () => void;
 }) {
-  const [cfClicked, setCfClicked] = useState(false);
-  const [verifying, setVerifying] = useState(false);
+  const [cfClicked,   setCfClicked]   = useState(false);
+  const [verifying,   setVerifying]   = useState(false);
   const [verifyError, setVerifyError] = useState("");
 
   const cfUrl =
@@ -273,25 +370,22 @@ function StepTwo({
 
   async function handleVerify() {
     if (!isValidRoleArn(data.roleArn)) {
-      setVerifyError("Invalid ARN format. Must match arn:aws:iam::<account-id>:role/<role-name>");
+      setVerifyError("Invalid ARN — must match arn:aws:iam::<account-id>:role/<name>");
       return;
     }
     setVerifyError("");
     setVerifying(true);
-
     try {
-      const res = await fetch("/api/aws/connect", {
-        method: "POST",
+      const res  = await fetch("/api/aws/connect", {
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId, roleArn: data.roleArn }),
+        body:    JSON.stringify({ projectId, roleArn: data.roleArn }),
       });
       const json = await res.json() as { success?: boolean; accountId?: string; error?: string };
-
       if (!res.ok || !json.success) {
-        setVerifyError(json.error ?? "Verification failed. Please check the role ARN and try again.");
+        setVerifyError(json.error ?? "Verification failed. Check the role ARN.");
         return;
       }
-
       onChange({ accountId: json.accountId ?? "" });
       onContinue();
     } catch {
@@ -302,133 +396,114 @@ function StepTwo({
   }
 
   const isConnected = !!data.accountId;
-  const arnError = data.roleArn && !isValidRoleArn(data.roleArn)
-    ? "Must match arn:aws:iam::<12-digit-account-id>:role/<role-name>"
+  const arnError    = data.roleArn && !isValidRoleArn(data.roleArn)
+    ? "Must match arn:aws:iam::<12-digit-id>:role/<name>"
     : "";
 
   return (
-    <div className="card">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-9 h-9 bg-gray-800 rounded-lg flex items-center justify-center shrink-0">
-          <Shield className="w-5 h-5 text-gray-300" />
-        </div>
-        <div>
-          <h2 className="font-semibold text-white">Connect your AWS account</h2>
-          <p className="text-sm text-gray-400">
-            We need read/write access to deploy infrastructure into your account.
-          </p>
-        </div>
-      </div>
-
-      <div className="space-y-5">
-        {/* Step 2a — Launch CloudFormation */}
-        <div className="bg-gray-800/60 border border-gray-700 rounded-lg p-4 space-y-3">
-          <div className="flex items-start gap-2">
-            <div className="w-5 h-5 rounded-full bg-sky-500/20 border border-sky-500/40 flex items-center justify-center shrink-0 mt-0.5">
-              <span className="text-xs text-sky-400 font-semibold">1</span>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-200">
-                Create the IAM role in your AWS account
-              </p>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Click the button below. This opens AWS CloudFormation in a new tab and creates a
-                least-privilege IAM role that InfraReady will use to deploy your infrastructure.
-              </p>
-            </div>
+    <div className="space-y-4">
+      {/* Step 1: Launch CloudFormation */}
+      <div className={`rounded-xl border p-5 space-y-4 transition-all ${
+        cfClicked ? "border-emerald-500/20 bg-emerald-500/[0.03]" : "border-white/[0.08] bg-white/[0.02]"
+      }`}>
+        <div className="flex items-start gap-3">
+          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 mt-0.5 ${
+            cfClicked ? "bg-emerald-500 text-white" : "bg-sky-500/20 text-sky-400 border border-sky-500/30"
+          }`}>
+            {cfClicked ? <Check className="w-3.5 h-3.5" /> : "1"}
           </div>
-
-          <a
-            href={cfUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => setCfClicked(true)}
-            className="btn-secondary inline-flex items-center gap-2 text-sm"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-            Launch CloudFormation Stack
-          </a>
-
-          {cfClicked && (
-            <p className="text-xs text-sky-400 flex items-center gap-1.5">
-              <CheckCircle className="w-3.5 h-3.5" />
-              CloudFormation opened — come back here once the stack shows CREATE_COMPLETE.
-            </p>
-          )}
-
-          {/* ExternalId for reference */}
           <div>
-            <p className="text-xs text-gray-500 mb-1">Your External ID (pre-filled in the stack):</p>
-            <code className="text-xs bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sky-300 font-mono break-all">
-              {data.externalId}
-            </code>
+            <p className="text-sm font-semibold text-white">Create the IAM role</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Opens AWS CloudFormation. Creates a least-privilege role in ~90 seconds.
+            </p>
           </div>
         </div>
 
-        {/* Step 2b — Paste Role ARN */}
-        <div className="bg-gray-800/60 border border-gray-700 rounded-lg p-4 space-y-3">
-          <div className="flex items-start gap-2">
-            <div className="w-5 h-5 rounded-full bg-sky-500/20 border border-sky-500/40 flex items-center justify-center shrink-0 mt-0.5">
-              <span className="text-xs text-sky-400 font-semibold">2</span>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-200">
-                Paste your IAM Role ARN
-              </p>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Found in the CloudFormation stack Outputs tab after CREATE_COMPLETE.
-              </p>
-            </div>
-          </div>
+        <a
+          href={cfUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() => setCfClicked(true)}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.09] border border-white/[0.08] text-sm font-medium text-gray-200 transition-all"
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+          Launch CloudFormation Stack
+        </a>
 
-          {isConnected ? (
-            <div className="flex items-center gap-2 text-green-400 text-sm">
-              <CheckCircle className="w-4 h-4" />
-              <span>
-                AWS account{" "}
-                <span className="font-mono text-green-300">{data.accountId}</span> connected
-              </span>
-            </div>
-          ) : (
-            <>
-              <input
-                type="text"
-                placeholder="arn:aws:iam::123456789012:role/InfraReadyRole"
-                value={data.roleArn}
-                onChange={(e) => onChange({ roleArn: e.target.value })}
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
-              />
-              {arnError && (
-                <p className="text-xs text-red-400">{arnError}</p>
-              )}
-              {verifyError && (
-                <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-red-900/30 border border-red-800/50 text-sm text-red-400">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  {verifyError}
-                </div>
-              )}
-              <button
-                onClick={handleVerify}
-                disabled={verifying || !data.roleArn || !!arnError}
-                className="btn-primary flex items-center gap-2 text-sm"
-              >
-                {verifying ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <CheckCircle className="w-4 h-4" />
-                )}
-                {verifying ? "Verifying..." : "Verify Connection"}
-              </button>
-            </>
-          )}
+        {cfClicked && (
+          <p className="text-xs text-emerald-400 flex items-center gap-1.5">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            Wait for stack to show <span className="font-mono">CREATE_COMPLETE</span>, then continue below.
+          </p>
+        )}
+
+        <div>
+          <p className="text-xs text-gray-500 mb-1.5">Your External ID (pre-filled in the stack)</p>
+          <code className="block text-xs bg-[#0d1117] border border-white/[0.06] rounded-lg px-3 py-2 text-sky-300 font-mono break-all">
+            {data.externalId}
+          </code>
         </div>
-
-        {/* Back */}
-        <button onClick={onBack} className="btn-secondary flex items-center gap-2 text-sm">
-          <ArrowLeft className="w-4 h-4" />
-          Back
-        </button>
       </div>
+
+      {/* Step 2: Paste ARN */}
+      <div className={`rounded-xl border p-5 space-y-4 transition-all ${
+        isConnected ? "border-emerald-500/20 bg-emerald-500/[0.03]" : "border-white/[0.08] bg-white/[0.02]"
+      }`}>
+        <div className="flex items-start gap-3">
+          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 mt-0.5 ${
+            isConnected ? "bg-emerald-500 text-white" : "bg-sky-500/20 text-sky-400 border border-sky-500/30"
+          }`}>
+            {isConnected ? <Check className="w-3.5 h-3.5" /> : "2"}
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-white">Paste your IAM Role ARN</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Found in the CloudFormation stack <span className="font-mono">Outputs</span> tab.
+            </p>
+          </div>
+        </div>
+
+        {isConnected ? (
+          <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-400">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            AWS account <span className="font-mono ml-1">{data.accountId}</span> connected
+          </div>
+        ) : (
+          <>
+            <input
+              type="text"
+              placeholder="arn:aws:iam::123456789012:role/InfraReadyRole"
+              value={data.roleArn}
+              onChange={(e) => onChange({ roleArn: e.target.value })}
+              className={`${inputCls} font-mono`}
+            />
+            {arnError && <p className="text-xs text-red-400">{arnError}</p>}
+            {verifyError && (
+              <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                {verifyError}
+              </div>
+            )}
+            <button
+              onClick={handleVerify}
+              disabled={verifying || !data.roleArn || !!arnError}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 disabled:bg-sky-500/40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all"
+            >
+              {verifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              {verifying ? "Verifying…" : "Verify Connection"}
+            </button>
+          </>
+        )}
+      </div>
+
+      <button
+        onClick={onBack}
+        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-gray-400 hover:text-gray-200 transition-colors"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        Back
+      </button>
     </div>
   );
 }
@@ -444,7 +519,46 @@ const AWS_REGIONS = [
   { value: "ap-southeast-1", label: "Asia Pacific (Singapore)" },
 ];
 
-function ModuleCard({
+function TierCard({
+  tierKey,
+  tier,
+  selected,
+  onSelect,
+}: {
+  tierKey: DeploymentTier;
+  tier: (typeof TIERS)[DeploymentTier];
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`relative text-left rounded-xl border p-4 transition-all cursor-pointer ${
+        selected
+          ? `${tier.ring} bg-white/[0.03] ring-1`
+          : "border-white/[0.06] bg-white/[0.01] hover:border-white/[0.1] hover:bg-white/[0.03]"
+      }`}
+    >
+      {selected && (
+        <div className="absolute top-3 right-3 w-4 h-4 rounded-full bg-sky-500 flex items-center justify-center">
+          <Check className="w-2.5 h-2.5 text-white" />
+        </div>
+      )}
+      <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold mb-3 ${tier.badge}`}>
+        {tierKey === "lean" && <Zap className="w-3 h-3" />}
+        {tierKey === "production" && <Rocket className="w-3 h-3" />}
+        {tierKey === "scale" && <TrendingUp className="w-3 h-3" />}
+        {tier.label}
+      </div>
+      <p className={`text-lg font-bold ${selected ? tier.accent : "text-white"}`}>{tier.cost}</p>
+      <p className="text-xs text-gray-500 mt-0.5 leading-snug">{tier.bestFor}</p>
+      <p className="text-xs text-gray-400 mt-2 leading-snug">{tier.tagline}</p>
+    </button>
+  );
+}
+
+function ModuleToggle({
   icon,
   title,
   description,
@@ -457,36 +571,47 @@ function ModuleCard({
   description: string;
   checked: boolean;
   disabled: boolean;
-  onChange: (val: boolean) => void;
+  onChange: (v: boolean) => void;
 }) {
   return (
     <label
-      className={`flex items-start gap-3 p-3.5 rounded-lg border transition-colors cursor-pointer ${
+      className={`flex items-center gap-3.5 px-4 py-3 rounded-lg border transition-all cursor-pointer ${
         disabled
-          ? "border-sky-800/50 bg-sky-900/10 cursor-not-allowed"
+          ? "border-sky-500/20 bg-sky-500/[0.03] cursor-not-allowed"
           : checked
-          ? "border-sky-700/60 bg-sky-900/20"
-          : "border-gray-700 bg-gray-800/40 hover:border-gray-600"
+          ? "border-sky-500/30 bg-sky-500/[0.05] hover:bg-sky-500/[0.08]"
+          : "border-white/[0.06] bg-white/[0.02] hover:border-white/[0.1] hover:bg-white/[0.04]"
       }`}
     >
-      <input
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 accent-sky-500"
-      />
-      <div className="flex items-start gap-2.5">
-        <div className="text-gray-400 mt-0.5 shrink-0">{icon}</div>
-        <div>
-          <p className="text-sm font-medium text-gray-200">
-            {title}
-            {disabled && (
-              <span className="ml-2 text-xs text-sky-400 font-normal">required</span>
-            )}
-          </p>
-          <p className="text-xs text-gray-500 mt-0.5">{description}</p>
+      <div className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${
+        checked ? "bg-sky-500/20 text-sky-400" : "bg-white/[0.05] text-gray-500"
+      }`}>
+        {icon}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium text-gray-200">{title}</p>
+          {disabled && (
+            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-400">
+              required
+            </span>
+          )}
         </div>
+        <p className="text-xs text-gray-500 mt-0.5 truncate">{description}</p>
+      </div>
+      <div className={`w-9 h-5 rounded-full transition-all relative shrink-0 ${
+        checked ? "bg-sky-500" : "bg-gray-700"
+      } ${disabled ? "opacity-60" : ""}`}>
+        <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
+          checked ? "left-[calc(100%-18px)]" : "left-0.5"
+        }`} />
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.checked)}
+          className="sr-only"
+        />
       </div>
     </label>
   );
@@ -494,20 +619,41 @@ function ModuleCard({
 
 function StepThree({
   data,
+  appType,
   accountId,
   projectId,
   onChange,
   onBack,
 }: {
   data: StepThreeData;
+  appType: AppType;
   accountId: string;
   projectId: string;
   onChange: (patch: Partial<StepThreeData>) => void;
   onBack: () => void;
 }) {
-  const [deploying, setDeploying] = useState(false);
-  const [deployError, setDeployError] = useState("");
+  const [deploying,    setDeploying]    = useState(false);
+  const [deployError,  setDeployError]  = useState("");
   const router = useRouter();
+
+  function handleTierChange(tier: DeploymentTier) {
+    const tierModules  = TIERS[tier].modules;
+    const appDefaults  = APP_DEFAULTS[appType];
+    onChange({
+      deploymentTier: tier,
+      modules: {
+        ecs:               tierModules.includes("ecs"),
+        rds:               tierModules.includes("rds"),
+        storage:           tierModules.includes("storage"),
+        security:          tierModules.includes("security"),
+        "app-runner":      tierModules.includes("app-runner"),
+        "aurora-serverless": tierModules.includes("aurora-serverless"),
+      },
+      containerPort:   appDefaults.port,
+      containerCpu:    appDefaults.cpu,
+      containerMemory: appDefaults.memory,
+    });
+  }
 
   function patchModules(patch: Partial<StepThreeData["modules"]>) {
     onChange({ modules: { ...data.modules, ...patch } });
@@ -517,43 +663,43 @@ function StepThree({
     setDeployError("");
     setDeploying(true);
 
-    // Build module list — vpc is always included
     const modules: string[] = ["vpc"];
-    if (data.modules.ecs) modules.push("ecs");
-    if (data.modules.rds) modules.push("rds");
-    if (data.modules.storage) modules.push("storage");
-    if (data.modules.security) modules.push("security");
+    if (data.modules.ecs)                  modules.push("ecs");
+    if (data.modules.rds)                  modules.push("rds");
+    if (data.modules.storage)              modules.push("storage");
+    if (data.modules.security)             modules.push("security");
+    if (data.modules["app-runner"])        modules.push("app-runner");
+    if (data.modules["aurora-serverless"]) modules.push("aurora-serverless");
 
     const config: Record<string, unknown> = {
-      aws_region: data.awsRegion,
+      aws_region:  data.awsRegion,
       environment: data.environment,
+      app_type:    appType,
       alert_email: data.alertEmail || undefined,
     };
 
-    if (data.modules.ecs) {
-      config.container_port = data.containerPort;
-      config.container_cpu = data.containerCpu;
+    if (data.modules.ecs || data.modules["app-runner"]) {
+      config.container_port   = data.containerPort;
+      config.container_cpu    = data.containerCpu;
       config.container_memory = data.containerMemory;
     }
 
     if (data.modules.rds) {
-      config.db_engine = data.dbEngine;
+      config.db_engine   = data.dbEngine;
       config.db_instance = data.dbInstance;
     }
 
     try {
-      const res = await fetch("/api/deploy", {
-        method: "POST",
+      const res  = await fetch("/api/deploy", {
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId, modules, config }),
+        body:    JSON.stringify({ projectId, modules, config }),
       });
       const json = await res.json() as { deploymentId?: string; error?: string };
-
       if (!res.ok || !json.deploymentId) {
-        setDeployError(json.error ?? "Failed to queue deployment. Please try again.");
+        setDeployError(json.error ?? "Failed to queue deployment.");
         return;
       }
-
       router.push(`/projects/${projectId}`);
     } catch {
       setDeployError("Network error. Please try again.");
@@ -562,333 +708,298 @@ function StepThree({
     }
   }
 
-  const inputClass =
-    "w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent";
-
-  const selectClass =
-    "w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent";
+  const appDefaults = APP_DEFAULTS[appType];
 
   return (
-    <div className="card">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-9 h-9 bg-gray-800 rounded-lg flex items-center justify-center shrink-0">
-          <Rocket className="w-5 h-5 text-gray-300" />
-        </div>
-        <div>
-          <h2 className="font-semibold text-white">Configure your infrastructure</h2>
-          <p className="text-sm text-gray-400">
-            Deploying to account{" "}
-            <span className="font-mono text-sky-400">{accountId}</span>
-          </p>
+    <div className="space-y-6">
+      {/* AWS account badge */}
+      <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-400">
+        <CheckCircle2 className="w-4 h-4 shrink-0" />
+        Deploying to AWS account <span className="font-mono ml-1">{accountId}</span>
+      </div>
+
+      {/* App type detected */}
+      <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg bg-white/[0.03] border border-white/[0.06] text-sm">
+        <Cpu className="w-4 h-4 text-cyan-400 shrink-0" />
+        <span className="text-gray-400">Detected: </span>
+        <span className="text-white font-medium ml-0.5">
+          {appType === "nextjs" ? "Next.js" :
+           appType === "python" ? "Python"  :
+           appType === "java"   ? "Java / Spring" :
+           appType === "ai"     ? "AI / ML" : "Custom"}
+        </span>
+        <span className="text-gray-600 ml-1">
+          · Port {appDefaults.port} · {appDefaults.cpu / 1024} vCPU · {appDefaults.memory} MB
+        </span>
+      </div>
+
+      {/* Tier selector */}
+      <div>
+        <label className="block text-sm font-medium text-gray-300 mb-3">Deployment tier</label>
+        <div className="grid grid-cols-3 gap-3">
+          {(Object.entries(TIERS) as [DeploymentTier, (typeof TIERS)[DeploymentTier]][]).map(([key, tier]) => (
+            <TierCard
+              key={key}
+              tierKey={key}
+              tier={tier}
+              selected={data.deploymentTier === key}
+              onSelect={() => handleTierChange(key)}
+            />
+          ))}
         </div>
       </div>
 
-      <div className="space-y-6">
-        {/* Region + Environment */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">AWS Region</label>
-            <select
-              value={data.awsRegion}
-              onChange={(e) => onChange({ awsRegion: e.target.value })}
-              className={selectClass}
-            >
-              {AWS_REGIONS.map((r) => (
-                <option key={r.value} value={r.value}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">Environment</label>
-            <select
-              value={data.environment}
-              onChange={(e) => onChange({ environment: e.target.value as Environment })}
-              className={selectClass}
-            >
-              <option value="production">Production</option>
-              <option value="staging">Staging</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Module selection */}
+      {/* Region + Environment */}
+      <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">
-            Infrastructure modules
-          </label>
-          <div className="space-y-2">
-            <ModuleCard
-              icon={<Globe className="w-4 h-4" />}
-              title="VPC"
-              description="Virtual private cloud, subnets, NAT gateway, routing"
-              checked={true}
-              disabled={true}
-              onChange={() => {}}
-            />
-            <ModuleCard
-              icon={<Box className="w-4 h-4" />}
-              title="ECS"
-              description="Run your containers on AWS Fargate — no servers to manage"
-              checked={data.modules.ecs}
-              disabled={false}
-              onChange={(v) => patchModules({ ecs: v })}
-            />
-            <ModuleCard
-              icon={<Database className="w-4 h-4" />}
-              title="RDS"
-              description="PostgreSQL or MySQL database, Multi-AZ, automated backups"
-              checked={data.modules.rds}
-              disabled={false}
-              onChange={(v) => patchModules({ rds: v })}
-            />
-            <ModuleCard
-              icon={<Globe className="w-4 h-4" />}
-              title="Storage"
-              description="S3 bucket + CloudFront CDN for static assets"
-              checked={data.modules.storage}
-              disabled={false}
-              onChange={(v) => patchModules({ storage: v })}
-            />
-            <ModuleCard
-              icon={<Shield className="w-4 h-4" />}
-              title="Security"
-              description="SOC2 baseline: GuardDuty, CloudTrail, Config, Security Hub"
-              checked={data.modules.security}
-              disabled={false}
-              onChange={(v) => patchModules({ security: v })}
-            />
-          </div>
-        </div>
-
-        {/* ECS config */}
-        {data.modules.ecs && (
-          <div className="bg-gray-800/50 border border-gray-700/60 rounded-lg p-4 space-y-4">
-            <p className="text-sm font-medium text-gray-300">ECS configuration</p>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Container port</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={65535}
-                  value={data.containerPort}
-                  onChange={(e) => onChange({ containerPort: Number(e.target.value) })}
-                  className={inputClass}
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">CPU (vCPU units)</label>
-                <select
-                  value={data.containerCpu}
-                  onChange={(e) => onChange({ containerCpu: Number(e.target.value) })}
-                  className={selectClass}
-                >
-                  <option value={256}>256 (0.25 vCPU)</option>
-                  <option value={512}>512 (0.5 vCPU)</option>
-                  <option value={1024}>1024 (1 vCPU)</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Memory (MB)</label>
-                <select
-                  value={data.containerMemory}
-                  onChange={(e) => onChange({ containerMemory: Number(e.target.value) })}
-                  className={selectClass}
-                >
-                  <option value={512}>512 MB</option>
-                  <option value={1024}>1024 MB</option>
-                  <option value={2048}>2048 MB</option>
-                </select>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* RDS config */}
-        {data.modules.rds && (
-          <div className="bg-gray-800/50 border border-gray-700/60 rounded-lg p-4 space-y-4">
-            <p className="text-sm font-medium text-gray-300">RDS configuration</p>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Database engine</label>
-                <select
-                  value={data.dbEngine}
-                  onChange={(e) => onChange({ dbEngine: e.target.value as DbEngine })}
-                  className={selectClass}
-                >
-                  <option value="postgres">PostgreSQL</option>
-                  <option value="mysql">MySQL</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Instance size</label>
-                <select
-                  value={data.dbInstance}
-                  onChange={(e) => onChange({ dbInstance: e.target.value })}
-                  className={selectClass}
-                >
-                  <option value="db.t3.micro">db.t3.micro (~$13/mo)</option>
-                  <option value="db.t3.small">db.t3.small (~$26/mo)</option>
-                </select>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Alert email */}
-        <div>
-          <label className="block text-sm font-medium text-gray-300 mb-1.5">
-            Alert email{" "}
-            <span className="text-gray-500 font-normal">(optional)</span>
-          </label>
-          <input
-            type="email"
-            placeholder="you@example.com"
-            value={data.alertEmail}
-            onChange={(e) => onChange({ alertEmail: e.target.value })}
-            className={inputClass}
-          />
-          <p className="mt-1.5 text-xs text-gray-500">
-            Receive cost alerts and security notifications.
-          </p>
-        </div>
-
-        {deployError && (
-          <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-red-900/30 border border-red-800/50 text-sm text-red-400">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            {deployError}
-          </div>
-        )}
-
-        <div className="flex items-center gap-3 pt-2">
-          <button onClick={onBack} className="btn-secondary flex items-center gap-2 text-sm">
-            <ArrowLeft className="w-4 h-4" />
-            Back
-          </button>
-          <button
-            onClick={handleDeploy}
-            disabled={deploying}
-            className="btn-primary flex items-center gap-2 flex-1 justify-center"
+          <label className="block text-sm font-medium text-gray-300 mb-2">AWS Region</label>
+          <select
+            value={data.awsRegion}
+            onChange={(e) => onChange({ awsRegion: e.target.value })}
+            className={selectCls}
           >
-            {deploying ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Rocket className="w-4 h-4" />
-            )}
-            {deploying ? "Queuing deployment..." : "Deploy Infrastructure"}
-          </button>
+            {AWS_REGIONS.map((r) => (
+              <option key={r.value} value={r.value}>{r.label}</option>
+            ))}
+          </select>
         </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">Environment</label>
+          <select
+            value={data.environment}
+            onChange={(e) => onChange({ environment: e.target.value as Environment })}
+            className={selectCls}
+          >
+            <option value="production">Production</option>
+            <option value="staging">Staging</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Modules */}
+      <div>
+        <label className="block text-sm font-medium text-gray-300 mb-3">
+          Infrastructure modules
+          <span className="ml-2 text-xs text-gray-500 font-normal">auto-selected by tier</span>
+        </label>
+        <div className="space-y-2">
+          <ModuleToggle icon={<Globe className="w-4 h-4" />} title="VPC" description="Virtual private cloud, subnets, NAT gateway" checked={true} disabled={true} onChange={() => {}} />
+          <ModuleToggle icon={<Box className="w-4 h-4" />} title="ECS Fargate" description="Serverless containers — no EC2 to manage" checked={data.modules.ecs} disabled={false} onChange={(v) => patchModules({ ecs: v })} />
+          <ModuleToggle icon={<Zap className="w-4 h-4" />} title="App Runner" description="Auto-HTTPS containers, scales to zero, no ALB" checked={data.modules["app-runner"]} disabled={false} onChange={(v) => patchModules({ "app-runner": v })} />
+          <ModuleToggle icon={<Database className="w-4 h-4" />} title="RDS PostgreSQL" description="Always-on Postgres with automated backups" checked={data.modules.rds} disabled={false} onChange={(v) => patchModules({ rds: v })} />
+          <ModuleToggle icon={<TrendingUp className="w-4 h-4" />} title="Aurora Serverless v2" description="Auto-scaling Postgres — 0.5–64 ACUs" checked={data.modules["aurora-serverless"]} disabled={false} onChange={(v) => patchModules({ "aurora-serverless": v })} />
+          <ModuleToggle icon={<Globe className="w-4 h-4" />} title="Storage + CDN" description="S3 + CloudFront for static assets and uploads" checked={data.modules.storage} disabled={false} onChange={(v) => patchModules({ storage: v })} />
+          <ModuleToggle icon={<Shield className="w-4 h-4" />} title="Security Baseline" description="GuardDuty, CloudTrail, Config, Security Hub" checked={data.modules.security} disabled={false} onChange={(v) => patchModules({ security: v })} />
+        </div>
+      </div>
+
+      {/* Container config */}
+      {(data.modules.ecs || data.modules["app-runner"]) && (
+        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-4">
+          <p className="text-sm font-semibold text-gray-200">Container settings</p>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1.5">Port</label>
+              <input type="number" min={1} max={65535} value={data.containerPort}
+                onChange={(e) => onChange({ containerPort: Number(e.target.value) })} className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1.5">CPU</label>
+              <select value={data.containerCpu} onChange={(e) => onChange({ containerCpu: Number(e.target.value) })} className={selectCls}>
+                <option value={256}>0.25 vCPU</option>
+                <option value={512}>0.5 vCPU</option>
+                <option value={1024}>1 vCPU</option>
+                <option value={2048}>2 vCPU</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1.5">Memory</label>
+              <select value={data.containerMemory} onChange={(e) => onChange({ containerMemory: Number(e.target.value) })} className={selectCls}>
+                <option value={512}>512 MB</option>
+                <option value={1024}>1 GB</option>
+                <option value={2048}>2 GB</option>
+                <option value={4096}>4 GB</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RDS config */}
+      {data.modules.rds && (
+        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-4">
+          <p className="text-sm font-semibold text-gray-200">RDS settings</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1.5">Engine</label>
+              <select value={data.dbEngine} onChange={(e) => onChange({ dbEngine: e.target.value as DbEngine })} className={selectCls}>
+                <option value="postgres">PostgreSQL</option>
+                <option value="mysql">MySQL</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1.5">Instance</label>
+              <select value={data.dbInstance} onChange={(e) => onChange({ dbInstance: e.target.value })} className={selectCls}>
+                <option value="db.t3.micro">db.t3.micro (~$13/mo)</option>
+                <option value="db.t3.small">db.t3.small (~$26/mo)</option>
+                <option value="db.t3.medium">db.t3.medium (~$52/mo)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Alert email */}
+      <div>
+        <label className="block text-sm font-medium text-gray-300 mb-2">
+          Alert email <span className="text-gray-600 font-normal">— optional</span>
+        </label>
+        <input type="email" placeholder="you@example.com" value={data.alertEmail}
+          onChange={(e) => onChange({ alertEmail: e.target.value })} className={inputCls} />
+        <p className="mt-1.5 text-xs text-gray-600">Cost alerts and security notifications.</p>
+      </div>
+
+      {deployError && (
+        <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          {deployError}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex items-center gap-3 pt-1">
+        <button
+          onClick={onBack}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-gray-200 border border-white/[0.06] hover:border-white/[0.12] transition-all"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back
+        </button>
+        <button
+          onClick={handleDeploy}
+          disabled={deploying}
+          className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-sky-500 hover:bg-sky-400 disabled:bg-sky-500/40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all"
+        >
+          {deploying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
+          {deploying ? "Queuing deployment…" : "Deploy Infrastructure"}
+        </button>
       </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Main wizard page
+// Page shell
 // ---------------------------------------------------------------------------
 
+const STEP_META = [
+  { icon: <Github className="w-4 h-4" />,  title: "Import repository",          sub: "Connect your GitHub repo to get started." },
+  { icon: <Shield className="w-4 h-4" />,  title: "Connect AWS account",         sub: "We deploy into your own AWS account — you stay in control." },
+  { icon: <Rocket className="w-4 h-4" />,  title: "Configure infrastructure",    sub: "Pick a tier and customize your modules." },
+];
+
 export default function NewProjectPage() {
-  const [step, setStep] = useState<Step>(1);
+  const [step, setStep]         = useState<Step>(1);
   const [projectId, setProjectId] = useState("");
 
   const [stepOneData, setStepOneData] = useState<StepOneData>({
-    repoUrl: "",
-    projectName: "",
+    repoUrl: "", projectName: "", appType: "nextjs",
   });
 
   const [stepTwoData, setStepTwoData] = useState<StepTwoData>({
-    externalId: generateExternalId(),
-    roleArn: "",
-    accountId: "",
+    externalId: generateExternalId(), roleArn: "", accountId: "",
   });
 
   const [stepThreeData, setStepThreeData] = useState<StepThreeData>({
-    awsRegion: "us-east-1",
-    environment: "production",
-    modules: {
-      ecs: true,
-      rds: false,
-      storage: false,
-      security: true,
-    },
-    containerPort: 3000,
-    containerCpu: 256,
-    containerMemory: 512,
-    dbEngine: "postgres",
-    dbInstance: "db.t3.micro",
-    alertEmail: "",
+    awsRegion: "us-east-1", environment: "production", deploymentTier: "lean",
+    modules: { ecs: true, rds: false, storage: false, security: true, "app-runner": false, "aurora-serverless": false },
+    containerPort: 3000, containerCpu: 256, containerMemory: 512,
+    dbEngine: "postgres", dbInstance: "db.t3.micro", alertEmail: "",
   });
 
-  // Step 1 → 2: create the project record first so step 2 has a projectId
   const handleStepOneContinue = useCallback(async () => {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
-
     if (!user) throw new Error("You must be logged in.");
 
     const { data: project, error } = await supabase
       .from("projects")
       .insert({
-        user_id: user.id,
-        name: stepOneData.projectName.trim(),
-        repo_url: stepOneData.repoUrl.trim(),
+        user_id:         user.id,
+        name:            stepOneData.projectName.trim(),
+        repo_url:        stepOneData.repoUrl.trim(),
         aws_external_id: stepTwoData.externalId,
-        status: "pending",
+        status:          "pending",
       })
       .select("id")
       .single();
 
-    if (error || !project) {
-      throw new Error(error?.message ?? "Failed to create project. Please try again.");
-    }
+    if (error || !project) throw new Error(error?.message ?? "Failed to create project.");
+
+    const appDefaults = APP_DEFAULTS[stepOneData.appType];
+    setStepThreeData((d) => ({
+      ...d,
+      containerPort:   appDefaults.port,
+      containerCpu:    appDefaults.cpu,
+      containerMemory: appDefaults.memory,
+    }));
 
     setProjectId(project.id);
     setStep(2);
   }, [stepOneData, stepTwoData.externalId]);
 
+  const meta = STEP_META[step - 1];
+
   return (
-    <div className="p-8 max-w-2xl mx-auto">
-      {/* Page header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-white">New project</h1>
-        <p className="text-gray-400 mt-1">
-          Deploy production AWS infrastructure in under 20 minutes.
-        </p>
+    <div className="min-h-screen bg-[#04091A] flex flex-col">
+      {/* Top bar */}
+      <div className="border-b border-white/[0.06] px-8 py-4">
+        <StepBar current={step} />
       </div>
 
-      {/* Step indicator */}
-      <StepIndicator current={step} />
+      {/* Content */}
+      <div className="flex-1 flex items-start justify-center px-4 py-10">
+        <div className="w-full max-w-xl">
+          {/* Step header */}
+          <div className="flex items-center gap-3 mb-8">
+            <div className="w-9 h-9 rounded-xl bg-white/[0.05] border border-white/[0.08] flex items-center justify-center text-gray-400">
+              {meta.icon}
+            </div>
+            <div>
+              <h1 className="text-lg font-semibold text-white">{meta.title}</h1>
+              <p className="text-sm text-gray-500">{meta.sub}</p>
+            </div>
+          </div>
 
-      {/* Step panels */}
-      {step === 1 && (
-        <StepOne
-          data={stepOneData}
-          onChange={(patch) => setStepOneData((d) => ({ ...d, ...patch }))}
-          onContinue={handleStepOneContinue}
-        />
-      )}
-
-      {step === 2 && (
-        <StepTwo
-          data={stepTwoData}
-          projectId={projectId}
-          onChange={(patch) => setStepTwoData((d) => ({ ...d, ...patch }))}
-          onContinue={() => setStep(3)}
-          onBack={() => setStep(1)}
-        />
-      )}
-
-      {step === 3 && (
-        <StepThree
-          data={stepThreeData}
-          accountId={stepTwoData.accountId}
-          projectId={projectId}
-          onChange={(patch) => setStepThreeData((d) => ({ ...d, ...patch }))}
-          onBack={() => setStep(2)}
-        />
-      )}
+          {/* Step content */}
+          {step === 1 && (
+            <StepOne
+              data={stepOneData}
+              onChange={(patch) => setStepOneData((d) => ({ ...d, ...patch }))}
+              onContinue={handleStepOneContinue}
+            />
+          )}
+          {step === 2 && (
+            <StepTwo
+              data={stepTwoData}
+              projectId={projectId}
+              onChange={(patch) => setStepTwoData((d) => ({ ...d, ...patch }))}
+              onContinue={() => setStep(3)}
+              onBack={() => setStep(1)}
+            />
+          )}
+          {step === 3 && (
+            <StepThree
+              data={stepThreeData}
+              appType={stepOneData.appType}
+              accountId={stepTwoData.accountId}
+              projectId={projectId}
+              onChange={(patch) => setStepThreeData((d) => ({ ...d, ...patch }))}
+              onBack={() => setStep(2)}
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }

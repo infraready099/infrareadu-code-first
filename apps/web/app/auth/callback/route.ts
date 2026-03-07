@@ -17,5 +17,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${origin}/login?error=auth`);
   }
 
-  return NextResponse.redirect(`${origin}/projects`);
+  const next = searchParams.get("next") ?? "/projects";
+  // Only allow relative paths to prevent open redirect
+  const destination = next.startsWith("/") ? next : "/projects";
+  return NextResponse.redirect(`${origin}${destination}`);
 }
