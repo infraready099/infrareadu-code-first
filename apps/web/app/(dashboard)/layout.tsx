@@ -75,8 +75,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
               <img
                 src={avatarUrl}
                 alt="Avatar"
-                className="w-7 h-7 rounded-full shrink-0 ring-1"
-                style={{ ringColor: "rgba(255,255,255,0.1)" }}
+                className="w-7 h-7 rounded-full shrink-0"
+                style={{ outline: "1px solid rgba(255,255,255,0.1)" }}
               />
             ) : (
               <div
