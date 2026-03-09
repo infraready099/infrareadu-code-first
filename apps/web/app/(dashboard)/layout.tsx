@@ -15,54 +15,109 @@ export default async function DashboardLayout({ children }: { children: React.Re
     redirect(`/login?next=${encodeURIComponent(nextPath)}`);
   }
 
+  const displayName = user.user_metadata?.user_name || user.email?.split("@")[0] || "User";
+  const avatarUrl   = user.user_metadata?.avatar_url as string | undefined;
+  const initials    = displayName[0]?.toUpperCase() ?? "U";
+
   return (
-    <div className="flex h-screen bg-gray-950">
+    <div className="flex h-screen" style={{ background: "#04091A" }}>
       {/* Sidebar */}
-      <aside className="w-56 border-r border-gray-800 flex flex-col shrink-0">
+      <aside
+        className="w-56 flex flex-col shrink-0"
+        style={{
+          background: "#04091A",
+          borderRight: "1px solid rgba(255,255,255,0.06)",
+        }}
+      >
         {/* Logo */}
-        <div className="h-14 flex items-center px-4 border-b border-gray-800">
-          <Link href="/projects" className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-sky-500 rounded-md flex items-center justify-center">
-              <Zap className="w-4 h-4 text-white" />
+        <div
+          className="h-14 flex items-center px-4 shrink-0"
+          style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+        >
+          <Link href="/projects" className="flex items-center gap-2.5 group">
+            {/* Gradient icon */}
+            <div
+              className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+              style={{
+                background: "linear-gradient(135deg, #0EA5E9 0%, #6366F1 100%)",
+                boxShadow: "0 0 16px rgba(14,165,233,0.35)",
+              }}
+            >
+              <Zap className="w-3.5 h-3.5 text-white" fill="currentColor" />
             </div>
-            <span className="font-semibold text-white tracking-tight">InfraReady</span>
+            <span
+              className="font-semibold tracking-tight text-sm"
+              style={{ color: "#F0F9FF" }}
+            >
+              InfraReady
+            </span>
           </Link>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          <NavItem href="/projects" icon={<LayoutDashboard className="w-4 h-4" />} label="Projects" />
-          <NavItem href="/deployments" icon={<Layers className="w-4 h-4" />} label="Deployments" />
-          <NavItem href="/settings" icon={<Settings className="w-4 h-4" />} label="Settings" />
+        <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
+          <NavItem href="/projects"    icon={<LayoutDashboard className="w-4 h-4" />} label="Projects" />
+          <NavItem href="/deployments" icon={<Layers className="w-4 h-4" />}          label="Deployments" />
+          <NavItem href="/settings"    icon={<Settings className="w-4 h-4" />}         label="Settings" />
         </nav>
 
-        {/* User */}
-        <div className="p-3 border-t border-gray-800">
-          <div className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-gray-800 cursor-pointer">
-            {user.user_metadata?.avatar_url ? (
+        {/* User area */}
+        <div
+          className="p-2 shrink-0"
+          style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
+        >
+          {/* Avatar + name */}
+          <div
+            className="flex items-center gap-2.5 px-2 py-2 rounded-lg transition-colors duration-150"
+            style={{ cursor: "default" }}
+          >
+            {avatarUrl ? (
               <img
-                src={user.user_metadata.avatar_url}
+                src={avatarUrl}
                 alt="Avatar"
-                className="w-7 h-7 rounded-full"
+                className="w-7 h-7 rounded-full shrink-0 ring-1"
+                style={{ ringColor: "rgba(255,255,255,0.1)" }}
               />
             ) : (
-              <div className="w-7 h-7 rounded-full bg-sky-500 flex items-center justify-center text-xs font-semibold">
-                {user.email?.[0]?.toUpperCase()}
+              <div
+                className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                style={{
+                  background: "linear-gradient(135deg, #0EA5E9 0%, #6366F1 100%)",
+                  color: "#fff",
+                }}
+              >
+                {initials}
               </div>
             )}
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-200 truncate">
-                {user.user_metadata?.user_name || user.email}
+              <p
+                className="text-sm font-medium truncate leading-tight"
+                style={{ color: "#E2E8F0" }}
+              >
+                {displayName}
               </p>
-              <p className="text-xs text-gray-500 truncate">Free plan</p>
+              <p className="text-[10px] truncate leading-tight" style={{ color: "#475569" }}>
+                Free plan
+              </p>
             </div>
           </div>
+
+          {/* Sign out */}
           <form action="/api/auth/signout" method="post">
             <button
               type="submit"
-              className="w-full flex items-center gap-2 px-2 py-2 mt-1 text-sm text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-800 transition-colors"
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors duration-150"
+              style={{ color: "#475569" }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.color = "#94A3B8";
+                (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.04)";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.color = "#475569";
+                (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+              }}
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className="w-3.5 h-3.5" />
               Sign out
             </button>
           </form>
@@ -70,7 +125,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-y-auto">{children}</main>
+      <main className="flex-1 overflow-y-auto" style={{ background: "#04091A" }}>
+        {children}
+      </main>
     </div>
   );
 }
@@ -79,10 +136,11 @@ function NavItem({ href, icon, label }: { href: string; icon: React.ReactNode; l
   return (
     <Link
       href={href}
-      className="flex items-center gap-3 px-2 py-2 text-sm text-gray-400 hover:text-gray-100 hover:bg-gray-800 rounded-lg transition-colors"
+      className="flex items-center gap-2.5 px-2 py-2 text-sm rounded-lg transition-colors duration-150 group"
+      style={{ color: "#64748B" }}
     >
-      {icon}
-      {label}
+      <span className="transition-colors duration-150">{icon}</span>
+      <span className="font-medium">{label}</span>
     </Link>
   );
 }

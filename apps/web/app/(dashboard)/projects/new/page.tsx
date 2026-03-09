@@ -174,34 +174,56 @@ const STEPS = [
 
 function StepBar({ current }: { current: Step }) {
   return (
-    <div className="flex items-center gap-0 mb-10">
+    <div className="flex items-center">
       {STEPS.map((s, i) => {
         const done   = s.num < current;
         const active = s.num === current;
         return (
           <div key={s.num} className="flex items-center">
             <div className="flex items-center gap-2.5">
+              {/* Circle */}
               <div
-                className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold transition-all ${
+                className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-200 shrink-0"
+                style={
                   done
-                    ? "bg-emerald-500 text-white"
+                    ? { background: "#10B981", color: "#fff" }
                     : active
-                    ? "bg-sky-500 text-white ring-4 ring-sky-500/20"
-                    : "bg-gray-800 text-gray-500"
-                }`}
+                    ? {
+                        background: "#0EA5E9",
+                        color: "#fff",
+                        boxShadow: "0 0 0 4px rgba(14,165,233,0.18)",
+                      }
+                    : {
+                        background: "rgba(255,255,255,0.05)",
+                        color: "#475569",
+                        border: "1px solid rgba(255,255,255,0.08)",
+                      }
+                }
               >
                 {done ? <Check className="w-3.5 h-3.5" /> : s.num}
               </div>
+
+              {/* Label */}
               <span
-                className={`text-sm font-medium ${
-                  active ? "text-white" : done ? "text-emerald-400" : "text-gray-500"
-                }`}
+                className="text-sm font-medium transition-colors duration-200"
+                style={
+                  active
+                    ? { color: "#F0F9FF" }
+                    : done
+                    ? { color: "#34D399" }
+                    : { color: "#475569" }
+                }
               >
                 {s.label}
               </span>
             </div>
+
+            {/* Connector */}
             {i < STEPS.length - 1 && (
-              <div className={`w-16 h-px mx-4 ${done ? "bg-emerald-800" : "bg-gray-800"}`} />
+              <div
+                className="w-14 h-px mx-4 transition-colors duration-200"
+                style={{ background: done ? "rgba(52,211,153,0.3)" : "rgba(255,255,255,0.07)" }}
+              />
             )}
           </div>
         );
@@ -951,23 +973,71 @@ export default function NewProjectPage() {
   const meta = STEP_META[step - 1];
 
   return (
-    <div className="min-h-screen bg-[#04091A] flex flex-col">
-      {/* Top bar */}
-      <div className="border-b border-white/[0.06] px-8 py-4">
+    <div
+      className="min-h-screen flex flex-col"
+      style={{ background: "#04091A" }}
+    >
+      {/* Radial glow atmosphere */}
+      <div
+        className="pointer-events-none fixed inset-0"
+        style={{
+          background:
+            "radial-gradient(ellipse 70% 40% at 50% 0%, rgba(14,165,233,0.07) 0%, transparent 70%)",
+        }}
+      />
+
+      {/* Top bar — step indicator */}
+      <div
+        className="relative z-10 px-8 py-4 flex items-center justify-between"
+        style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+      >
         <StepBar current={step} />
+
+        {/* Back to projects link */}
+        <a
+          href="/projects"
+          className="text-xs font-medium transition-colors duration-150"
+          style={{ color: "#475569" }}
+        >
+          Cancel
+        </a>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 flex items-start justify-center px-4 py-10">
+      {/* Content area */}
+      <div className="relative z-10 flex-1 flex items-start justify-center px-4 py-12">
         <div className="w-full max-w-xl">
+
           {/* Step header */}
-          <div className="flex items-center gap-3 mb-8">
-            <div className="w-9 h-9 rounded-xl bg-white/[0.05] border border-white/[0.08] flex items-center justify-center text-gray-400">
+          <div
+            className="flex items-center gap-3.5 mb-8 p-4 rounded-xl"
+            style={{
+              background: "rgba(255,255,255,0.02)",
+              border: "1px solid rgba(255,255,255,0.06)",
+            }}
+          >
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+              style={{
+                background: "rgba(14,165,233,0.1)",
+                border: "1px solid rgba(14,165,233,0.2)",
+                color: "#38BDF8",
+              }}
+            >
               {meta.icon}
             </div>
             <div>
-              <h1 className="text-lg font-semibold text-white">{meta.title}</h1>
-              <p className="text-sm text-gray-500">{meta.sub}</p>
+              <h1
+                className="text-base font-semibold leading-tight"
+                style={{ color: "#F0F9FF" }}
+              >
+                {meta.title}
+              </h1>
+              <p
+                className="text-sm mt-0.5 leading-snug"
+                style={{ color: "#475569" }}
+              >
+                {meta.sub}
+              </p>
             </div>
           </div>
 
