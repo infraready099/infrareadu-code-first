@@ -6,12 +6,15 @@ import { PricingSection } from "@/components/landing/PricingSection";
 import { HeroAnimations } from "@/components/landing/HeroAnimations";
 import { FeaturesGrid } from "@/components/landing/FeaturesGrid";
 import { HowItWorks } from "@/components/landing/HowItWorks";
+import { StatsBar } from "@/components/landing/StatsBar";
 
 // ─── Auth check (server) ────────────────────────────────────────────────────
 async function getUser() {
   try {
     const supabase = await createServerClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     return user;
   } catch {
     return null;
@@ -29,53 +32,54 @@ export default async function LandingPage() {
       <Nav isAuthenticated={isAuthenticated} />
 
       {/* ── Hero ── */}
-      <section className="relative min-h-screen flex flex-col items-center justify-center px-6 pt-24 pb-20">
-        {/* Dot grid background */}
+      <section className="relative min-h-screen flex flex-col items-center justify-center px-6 pt-24 pb-32">
+        {/* Dot grid */}
         <div
           className="absolute inset-0 pointer-events-none"
           style={{
             backgroundImage: "radial-gradient(rgba(148,163,184,0.07) 1px, transparent 1px)",
             backgroundSize: "32px 32px",
           }}
+          aria-hidden
         />
-        {/* Radial sky glow */}
+        {/* Top radial sky glow */}
         <div
           className="absolute inset-0 pointer-events-none"
           style={{
             background:
-              "radial-gradient(ellipse 80% 50% at 50% 0%, rgba(14,165,233,0.10) 0%, transparent 70%)",
+              "radial-gradient(ellipse 90% 55% at 50% 0%, rgba(14,165,233,0.12) 0%, transparent 70%)",
           }}
+          aria-hidden
         />
-        {/* Bottom fade */}
+        {/* Bottom page fade */}
         <div
-          className="absolute bottom-0 left-0 right-0 h-48 pointer-events-none"
-          style={{
-            background: "linear-gradient(to bottom, transparent, #04091A)",
-          }}
+          className="absolute bottom-0 left-0 right-0 h-64 pointer-events-none"
+          style={{ background: "linear-gradient(to bottom, transparent, #04091A)" }}
+          aria-hidden
         />
 
         <div className="relative z-10 max-w-6xl mx-auto w-full">
-          <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+          <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
             {/* Left: Copy */}
             <div className="text-center lg:text-left">
               <HeroAnimations isAuthenticated={isAuthenticated} />
             </div>
 
-            {/* Right: Terminal */}
+            {/* Right: Terminal (desktop) */}
             <div className="relative hidden lg:block">
-              <div className="absolute -inset-8 rounded-3xl pointer-events-none" style={{
-                background: "radial-gradient(ellipse 60% 60% at 50% 50%, rgba(14,165,233,0.07) 0%, transparent 70%)"
-              }} />
               <TerminalMockup />
             </div>
           </div>
 
-          {/* Mobile terminal below */}
+          {/* Mobile terminal */}
           <div className="mt-12 lg:hidden">
             <TerminalMockup />
           </div>
         </div>
       </section>
+
+      {/* ── Stats Bar ── */}
+      <StatsBar />
 
       {/* ── Logo bar ── */}
       <LogoBar />
@@ -116,14 +120,16 @@ function LogoBar() {
   ];
 
   return (
-    <section className="py-16 border-y border-white/[0.05] overflow-hidden relative">
+    <section className="py-16 border-y border-white/[0.05] overflow-hidden relative mt-8">
       <div
         className="absolute inset-y-0 left-0 w-24 pointer-events-none z-10"
         style={{ background: "linear-gradient(to right, #04091A, transparent)" }}
+        aria-hidden
       />
       <div
         className="absolute inset-y-0 right-0 w-24 pointer-events-none z-10"
         style={{ background: "linear-gradient(to left, #04091A, transparent)" }}
+        aria-hidden
       />
       <p className="text-center text-xs font-semibold uppercase tracking-widest text-slate-600 mb-8">
         Trusted by founders from
@@ -157,20 +163,30 @@ function LogoBar() {
 // ─── CTA Banner ──────────────────────────────────────────────────────────────
 function CTABanner() {
   return (
-    <section className="relative py-28 px-6 overflow-hidden">
-      {/* Glow behind */}
+    <section className="relative py-32 px-6 overflow-hidden">
+      {/* Background glow */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            "radial-gradient(ellipse 80% 60% at 50% 50%, rgba(14,165,233,0.08) 0%, transparent 70%)",
+            "radial-gradient(ellipse 80% 60% at 50% 50%, rgba(14,165,233,0.09) 0%, rgba(99,102,241,0.06) 50%, transparent 70%)",
         }}
+        aria-hidden
+      />
+      {/* Dot grid overlay */}
+      <div
+        className="absolute inset-0 pointer-events-none opacity-40"
+        style={{
+          backgroundImage: "radial-gradient(rgba(148,163,184,0.06) 1px, transparent 1px)",
+          backgroundSize: "32px 32px",
+        }}
+        aria-hidden
       />
       <div className="relative z-10 max-w-3xl mx-auto text-center">
         <span className="text-xs font-semibold uppercase tracking-widest text-sky-400 mb-4 block">
           Ready to ship?
         </span>
-        <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight mb-6">
+        <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight mb-6 leading-tight">
           <span className="text-[#F0F9FF]">Stop fighting</span>{" "}
           <span
             className="bg-clip-text text-transparent"
@@ -182,7 +198,8 @@ function CTABanner() {
           </span>
         </h2>
         <p className="text-lg text-slate-400 mb-10 max-w-xl mx-auto leading-relaxed">
-          Your AWS Activate credits are waiting. Deploy your first production environment in 20 minutes — no DevOps hire required.
+          Your AWS Activate credits are waiting. Deploy your first production environment in 20
+          minutes — no DevOps hire required.
         </p>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <Link
@@ -193,7 +210,7 @@ function CTABanner() {
           </Link>
           <Link
             href="mailto:kay@infraready.io"
-            className="w-full sm:w-auto px-8 py-4 rounded-xl font-semibold text-slate-300 text-base border border-white/10 hover:border-white/20 hover:text-white transition-all duration-200"
+            className="w-full sm:w-auto px-8 py-4 rounded-xl font-semibold text-slate-300 text-base border border-white/10 hover:border-white/20 hover:text-white transition-all duration-200 hover:bg-white/[0.03]"
           >
             Talk to a founder
           </Link>
@@ -217,7 +234,12 @@ function Footer() {
             <div className="flex items-center gap-2.5 mb-3">
               <div className="w-6 h-6 rounded-md bg-gradient-to-br from-sky-400 to-violet-500 flex items-center justify-center">
                 <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-                  <path d="M7 1L12 4V10L7 13L2 10V4L7 1Z" stroke="white" strokeWidth="1.5" strokeLinejoin="round" />
+                  <path
+                    d="M7 1L12 4V10L7 13L2 10V4L7 1Z"
+                    stroke="white"
+                    strokeWidth="1.5"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               </div>
               <span className="font-bold text-[#F0F9FF] text-sm">InfraReady</span>
@@ -250,7 +272,7 @@ function Footer() {
 
         <div className="mt-8 pt-8 border-t border-white/[0.04] flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-xs text-slate-700">
-            © 2025 InfraReady, Inc. All rights reserved.
+            &copy; 2025 InfraReady, Inc. All rights reserved.
           </p>
           <p className="text-xs text-slate-700">
             Powered by{" "}
