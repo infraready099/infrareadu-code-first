@@ -106,16 +106,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           <form action="/api/auth/signout" method="post">
             <button
               type="submit"
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors duration-150"
-              style={{ color: "#475569" }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.color = "#94A3B8";
-                (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.04)";
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.color = "#475569";
-                (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-              }}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors duration-150 text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]"
             >
               <LogOut className="w-3.5 h-3.5" />
               Sign out
