@@ -974,7 +974,7 @@ export default function NewProjectPage() {
 
   return (
     <div
-      className="min-h-screen flex flex-col"
+      className="min-h-full flex flex-col"
       style={{ background: "#04091A" }}
     >
       {/* Radial glow atmosphere */}

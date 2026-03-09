@@ -102,12 +102,16 @@ export async function POST(req: NextRequest) {
     awsExternalId: project.aws_external_id,
   };
 
-  await sqs.send(new SendMessageCommand({
-    QueueUrl: process.env.DEPLOY_QUEUE_URL!,
-    MessageBody: JSON.stringify(jobPayload),
-    MessageGroupId: projectId,          // FIFO: one deploy at a time per project
-    MessageDeduplicationId: deployment.id,
-  }));
+  if (process.env.DEPLOY_QUEUE_URL) {
+    await sqs.send(new SendMessageCommand({
+      QueueUrl: process.env.DEPLOY_QUEUE_URL,
+      MessageBody: JSON.stringify(jobPayload),
+      MessageGroupId: projectId,
+      MessageDeduplicationId: deployment.id,
+    }));
+  } else {
+    console.warn("DEPLOY_QUEUE_URL not set — deployment record created but runner not notified.");
+  }
 
   // Update project status
   await supabase
