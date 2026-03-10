@@ -193,7 +193,6 @@ resource "aws_lambda_function" "runner" {
     variables = {
       SUPABASE_URL              = var.supabase_url
       SUPABASE_SERVICE_ROLE_KEY = var.supabase_service_role_key
-      AWS_DEFAULT_REGION        = var.aws_region
       MODULES_PATH              = "/var/task/modules"
       OPENTOFU_PATH             = "/opt/opentofu/tofu"
     }
