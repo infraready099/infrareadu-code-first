@@ -11,6 +11,7 @@ import { execOpenTofu } from "./opentofu";
 import { createClient } from "@supabase/supabase-js";
 import { generateConfig, ModuleType, IaCEngine } from "./services/terraform-generator";
 import { scanHcl, formatScanReport, DEFAULT_FRAMEWORKS, DEFAULT_BLOCK_ON } from "./services/security-scan";
+import { generateGitHubWorkflow, workflowConfigFromOutputs } from "./services/github-workflow";
 
 const sts = new STSClient({ region: process.env.AWS_REGION ?? "us-east-1" });
 
@@ -27,6 +28,10 @@ interface DeployJob {
   config: Record<string, unknown>;
   awsRoleArn: string;
   awsExternalId: string;
+  // Optional GitHub context — present when triggered by a push event
+  githubRepoOwner?: string;
+  githubRepoName?: string;
+  githubBranch?: string;
 }
 
 export const handler = async (event: SQSEvent): Promise<void> => {
@@ -127,6 +132,28 @@ async function processRecord(record: SQSRecord): Promise<void> {
     await appendLog(deploymentId, "info", "\n[InfraReady] Saving outputs...");
 
     const flatOutputs = formatOutputs(outputs);
+
+    // Step 4: Generate GitHub Actions workflow if ECS was deployed
+    // The workflow YAML is stored in outputs so the UI can show it to the customer.
+    const awsAccountId = job.awsRoleArn.split(":")[4]; // arn:aws:iam::<account>:role/...
+    const awsRegion    = (job.config.aws_region as string) ?? "us-east-1";
+    const branch       = job.config.github_branch as string | undefined
+                      ?? job.githubBranch
+                      ?? "main";
+
+    const workflowCfg = workflowConfigFromOutputs(flatOutputs, awsAccountId, awsRegion, branch);
+
+    if (workflowCfg) {
+      const workflowYaml = generateGitHubWorkflow(workflowCfg);
+      flatOutputs.github_workflow_yaml = workflowYaml;
+
+      await appendLog(
+        deploymentId,
+        "success",
+        "[InfraReady] GitHub Actions deploy workflow generated. " +
+        "Add it to your repo at .github/workflows/deploy.yml to enable auto-deploy on push."
+      );
+    }
 
     await updateDeployment(deploymentId, {
       status: "success",

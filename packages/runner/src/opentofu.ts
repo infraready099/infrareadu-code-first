@@ -48,11 +48,10 @@ export async function execOpenTofu(opts: OpenTofuOptions): Promise<Record<string
   writeFileSync(backendConfigPath, `
 terraform {
   backend "s3" {
-    bucket         = "${stateBucket}"
-    key            = "${module}/terraform.tfstate"
-    region         = "${region}"
-    encrypt        = true
-    use_lockfile   = true  # OpenTofu 1.10 native S3 locking (no DynamoDB needed)
+    bucket  = "${stateBucket}"
+    key     = "${module}/terraform.tfstate"
+    region  = "${region}"
+    encrypt = true
   }
 }
 `);

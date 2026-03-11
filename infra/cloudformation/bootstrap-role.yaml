@@ -24,7 +24,7 @@ Parameters:
     Description: >
       InfraReady's AWS account ID. Only this account can assume the role.
       Change only if directed by InfraReady support.
-    Default: "891377410588"
+    Default: "073941171096"
     AllowedPattern: "^[0-9]{12}$"
     ConstraintDescription: Must be a 12-digit AWS account ID.
 

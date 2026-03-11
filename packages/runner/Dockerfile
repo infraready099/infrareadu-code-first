@@ -2,18 +2,21 @@
 # Lambda container image — includes Node.js 20 runtime + OpenTofu binary.
 # Build context must be the repo root so the modules directory is accessible.
 #
-# Build:  docker build -f packages/runner/Dockerfile -t infraready-runner .
+# Build:  docker build --platform linux/amd64 -f packages/runner/Dockerfile -t infraready-runner .
 # Push:   docker tag infraready-runner <ecr-url>:latest && docker push <ecr-url>:latest
+#
+# NOTE: Checkov (security scanner) is NOT bundled here due to OpenSSL ABI
+# incompatibility between Lambda Python and Node.js base images. The security-scan
+# service gracefully skips scanning when checkov is unavailable. To add checkov,
+# create a Lambda Layer built on the Python Lambda base image and attach it separately.
 
-FROM public.ecr.aws/lambda/nodejs:20
+FROM --platform=linux/amd64 public.ecr.aws/lambda/nodejs:20
 
 # ── Install OpenTofu ──────────────────────────────────────────────────────────
-# Download the official release, install to /opt/opentofu/tofu.
 # Version pinned for reproducibility — update here + in CI when upgrading.
 ARG TOFU_VERSION=1.9.0
 
-RUN yum install -y wget unzip tar gzip python3 python3-pip && \
-    pip3 install --no-cache-dir checkov && \
+RUN dnf install -y wget unzip tar gzip && \
     wget -q "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_amd64.zip" \
          -O /tmp/tofu.zip && \
     mkdir -p /opt/opentofu && \
