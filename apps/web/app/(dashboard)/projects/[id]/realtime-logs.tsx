@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Loader2 } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle } from "lucide-react";
 
 interface LogLine {
   ts:    string;
@@ -16,24 +16,18 @@ interface RealtimeLogsProps {
   initialStatus:  string;
 }
 
-const levelClass: Record<string, string> = {
-  success: "success",
-  error:   "error",
-  warn:    "warn",
-  info:    "info",
-};
-
 export function RealtimeLogs({ deploymentId, initialLogs, initialStatus }: RealtimeLogsProps) {
   const [logs, setLogs]     = useState<LogLine[]>(initialLogs);
   const [status, setStatus] = useState(initialStatus);
   const bottomRef           = useRef<HTMLDivElement>(null);
   const supabase            = createClient();
 
-  const isLive = status === "queued" || status === "running";
+  const isLive    = status === "queued" || status === "running";
+  const isFailed  = status === "failed";
+  const isSuccess = status === "success";
 
-  // On mount, fetch current state in case we missed updates before subscribing
+  // On mount, fetch current state in case Lambda finished before we subscribed
   useEffect(() => {
-    if (!isLive) return;
     supabase
       .from("deployments")
       .select("logs, status")
@@ -48,7 +42,7 @@ export function RealtimeLogs({ deploymentId, initialLogs, initialStatus }: Realt
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deploymentId]);
 
-  // Subscribe to realtime updates on this deployment row
+  // Subscribe to realtime updates
   useEffect(() => {
     if (!isLive) return;
 
@@ -82,27 +76,52 @@ export function RealtimeLogs({ deploymentId, initialLogs, initialStatus }: Realt
     <>
       <div className="deploy-log">
         {logs.length === 0 ? (
-          <div className="flex items-center justify-center text-gray-600 min-h-[120px]">
-            {isLive ? "Waiting for deployment to start..." : "No log output yet."}
+          <div className="flex items-center justify-center text-gray-600 min-h-[160px] text-sm">
+            {isLive ? (
+              <span className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-sky-500" />
+                Waiting for deployment to start...
+              </span>
+            ) : "No logs available."}
           </div>
         ) : (
-          logs.map((line, i) => (
-            <div key={i} className={`deploy-log-line ${levelClass[line.level] ?? "info"}`}>
-              <span className="text-gray-600 select-none shrink-0 tabular-nums">
-                {line.ts ? new Date(line.ts).toISOString().replace("T", " ").slice(11, 19) : ""}
-              </span>
-              <span>{line.msg}</span>
-            </div>
-          ))
+          logs.map((line, i) => {
+            const time = line.ts
+              ? new Date(line.ts).toISOString().replace("T", " ").slice(11, 19)
+              : "";
+            // Split multi-line messages into separate visual rows
+            const lines = line.msg.split("\n");
+            return lines.map((text, j) => (
+              <div key={`${i}-${j}`} className={`deploy-log-line ${line.level}`}>
+                <span className="ts">{j === 0 ? time : ""}</span>
+                <span className="msg">{text}</span>
+              </div>
+            ));
+          })
         )}
         <div ref={bottomRef} />
       </div>
 
+      {/* Status footer */}
       {isLive && (
         <p className="mt-3 text-xs text-sky-400 flex items-center gap-1.5">
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
           Live — updating automatically
         </p>
+      )}
+
+      {isFailed && (
+        <div className="mt-3 flex items-center gap-2 text-sm font-medium text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-2.5">
+          <XCircle className="w-4 h-4 shrink-0" />
+          Deployment failed — check the error lines above for details
+        </div>
+      )}
+
+      {isSuccess && (
+        <div className="mt-3 flex items-center gap-2 text-sm font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-4 py-2.5">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          Deployment complete — your infrastructure is live
+        </div>
       )}
     </>
   );

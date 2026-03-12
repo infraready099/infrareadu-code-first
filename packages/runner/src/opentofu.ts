@@ -52,6 +52,11 @@ region  = "${region}"
 encrypt = true
 `);
 
+  // Shared provider cache dir — reuse downloaded providers across all modules
+  // in the same deployment so the AWS provider (~300MB) is only downloaded once.
+  const providerCacheDir = join(tmpdir(), `infraready-providers-${opts.projectId}`);
+  mkdirSync(providerCacheDir, { recursive: true });
+
   // Environment with customer's temporary credentials
   const env = {
     ...process.env,
@@ -62,6 +67,8 @@ encrypt = true
     TF_IN_AUTOMATION: "1",
     TF_INPUT: "0",
     TF_CLI_ARGS: "-no-color",
+    TF_PLUGIN_CACHE_DIR: providerCacheDir,
+    TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE: "1",
   };
 
   const moduleSource = join(MODULES_PATH, module);
