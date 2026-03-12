@@ -73,7 +73,7 @@ resource "aws_cloudwatch_log_group" "app" {
 
 resource "aws_security_group" "alb" {
   name        = "${local.name}-alb-sg"
-  description = "ALB security group — allows inbound HTTP/HTTPS from internet"
+  description = "ALB security group - allows inbound HTTP/HTTPS from internet"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -106,7 +106,7 @@ resource "aws_security_group" "alb" {
 
 resource "aws_security_group" "ecs_tasks" {
   name        = "${local.name}-ecs-tasks-sg"
-  description = "ECS tasks security group — only allows traffic from ALB"
+  description = "ECS tasks security group - only allows traffic from ALB"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -235,46 +235,47 @@ resource "aws_lb_target_group" "app" {
   lifecycle { create_before_destroy = true }
 }
 
-# HTTP → HTTPS redirect
+# HTTP listener — forwards directly when no domain, redirects to HTTPS when domain is configured
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.app.arn
   port              = 80
   protocol          = "HTTP"
 
-  default_action {
-    type = "redirect"
-    redirect {
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
+  dynamic "default_action" {
+    for_each = local.use_domain ? [] : [1]
+    content {
+      type             = "forward"
+      target_group_arn = aws_lb_target_group.app.arn
+    }
+  }
+
+  dynamic "default_action" {
+    for_each = local.use_domain ? [1] : []
+    content {
+      type = "redirect"
+      redirect {
+        port        = "443"
+        protocol    = "HTTPS"
+        status_code = "HTTP_301"
+      }
     }
   }
 }
 
-# HTTPS listener
+# HTTPS listener — only created when a custom domain is provided
 resource "aws_lb_listener" "https" {
+  count = local.use_domain ? 1 : 0
+
   load_balancer_arn = aws_lb.app.arn
   port              = 443
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06" # Latest TLS policy
-  certificate_arn   = local.use_domain ? aws_acm_certificate.app[0].arn : aws_acm_certificate.self_signed[0].arn
+  certificate_arn   = aws_acm_certificate.app[0].arn
 
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.app.arn
   }
-}
-
-# Self-signed cert for when no domain is provided (dev/staging)
-resource "aws_acm_certificate" "self_signed" {
-  count = local.use_domain ? 0 : 1
-
-  domain_name       = "${local.name}.example.com"
-  validation_method = "DNS"
-
-  tags = local.common_tags
-
-  lifecycle { create_before_destroy = true }
 }
 
 # ─── ECS CLUSTER ─────────────────────────────────────────────────────────────
@@ -292,22 +293,6 @@ resource "aws_ecs_cluster" "this" {
   })
 }
 
-resource "aws_ecs_cluster_capacity_providers" "this" {
-  cluster_name       = aws_ecs_cluster.this.name
-  capacity_providers = ["FARGATE", "FARGATE_SPOT"]
-
-  default_capacity_provider_strategy {
-    capacity_provider = "FARGATE"
-    base              = 1
-    weight            = 70
-  }
-
-  default_capacity_provider_strategy {
-    capacity_provider = "FARGATE_SPOT"
-    base              = 0
-    weight            = 30 # 30% on Spot for cost savings
-  }
-}
 
 # ─── IAM ROLES FOR ECS ───────────────────────────────────────────────────────
 
@@ -454,6 +439,7 @@ resource "aws_ecs_service" "app" {
   cluster         = aws_ecs_cluster.this.id
   task_definition = aws_ecs_task_definition.app.arn
   desired_count   = var.desired_count
+  launch_type     = "FARGATE"
 
   # Use LATEST so we can update task definitions
   force_new_deployment               = true
@@ -489,7 +475,7 @@ resource "aws_ecs_service" "app" {
     ignore_changes = [task_definition, desired_count]
   }
 
-  depends_on = [aws_lb_listener.https, aws_iam_role.task_execution]
+  depends_on = [aws_lb_listener.http, aws_iam_role.task_execution]
 }
 
 # ─── AUTO-SCALING ─────────────────────────────────────────────────────────────
