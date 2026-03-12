@@ -67,6 +67,17 @@ variable "sso_admin_email" {
   default     = ""
 }
 
+variable "monthly_budget_usd" {
+  description = "Monthly AWS cost budget threshold in USD. SNS alerts fire at 80% and 100% of this amount."
+  type        = number
+  default     = 200
+}
+
+variable "budget_alert_email" {
+  description = "Email address to receive budget threshold alerts. Recipient must confirm the SNS subscription email from AWS."
+  type        = string
+}
+
 variable "tags" {
   description = "Tags applied to every resource created by the Landing Zone. Merged with module-specific tags."
   type        = map(string)

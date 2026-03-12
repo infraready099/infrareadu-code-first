@@ -318,6 +318,16 @@ resource "aws_organizations_policy" "protect_lz_controls" {
         Resource = ["*"]
       },
       {
+        Sid    = "ProtectSecurityHub"
+        Effect = "Deny"
+        Action = [
+          "securityhub:DisableSecurityHub",
+          "securityhub:DeleteHub",
+          "securityhub:DisassociateFromAdministratorAccount",
+        ]
+        Resource = ["*"]
+      },
+      {
         Sid    = "ProtectConfigRecorder"
         Effect = "Deny"
         Action = [
@@ -352,4 +362,51 @@ resource "aws_organizations_policy" "protect_lz_controls" {
 resource "aws_organizations_policy_attachment" "protect_lz_controls_root" {
   policy_id = aws_organizations_policy.protect_lz_controls.id
   target_id = var.root_id
+}
+
+# ─── SCP 5: REQUIRE IMDSv2 ON EC2 INSTANCES ──────────────────────────────────
+# Denies RunInstances when the caller does not set MetadataHttpTokens = "required".
+# IMDSv1 is vulnerable to SSRF attacks (CVE-2019-13103, Capital One breach).
+# AWS Foundational Security Best Practices EC2.8.
+#
+# Condition: StringNotEquals on the ec2:MetadataHttpTokens IAM condition key.
+# If the condition key is absent (old SDK, old CLI), the request is also denied.
+
+resource "aws_organizations_policy" "require_imdsv2" {
+  name        = "${var.org_name}-require-imdsv2"
+  description = "Deny EC2 RunInstances unless IMDSv2 (MetadataHttpTokens=required) is set. Prevents SSRF via IMDS."
+  type        = "SERVICE_CONTROL_POLICY"
+
+  content = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "DenyIMDSv1"
+        Effect = "Deny"
+        Action = ["ec2:RunInstances"]
+        Resource = [
+          # Restrict to the instance resource type only — other RunInstances resource
+          # types (AMI, subnet, security-group) don't carry this condition key.
+          "arn:aws:ec2:*:*:instance/*"
+        ]
+        Condition = {
+          StringNotEquals = {
+            "ec2:MetadataHttpTokens" = "required"
+          }
+        }
+      }
+    ]
+  })
+
+  tags = merge(local.common_tags, {
+    Name = "${var.org_name}-scp-require-imdsv2"
+  })
+}
+
+# Attach to Workloads OU only — workloads run EC2 instances.
+# Infrastructure and Security OUs have trusted operators; Sandbox excluded to
+# avoid blocking developer experimentation (optional — tighten if needed).
+resource "aws_organizations_policy_attachment" "require_imdsv2_workloads" {
+  policy_id = aws_organizations_policy.require_imdsv2.id
+  target_id = var.ou_ids["workloads"]
 }

@@ -43,12 +43,12 @@ provider "aws" {
   region = "us-east-1"
 
   assume_role {
-    # This role is created by the organizations module after account creation
+    # This role is created by the organizations module after account creation.
+    # OpenTofu resolves provider configuration at plan time — the dependency on
+    # module.organizations is implicit through the account_ids output reference.
     role_arn     = "arn:aws:iam::${module.organizations.account_ids["security"]}:role/InfraReadyLandingZoneBootstrap"
     session_name = "infraready-lz-security"
   }
-
-  depends_on = [module.organizations]
 }
 
 provider "aws" {
@@ -59,8 +59,6 @@ provider "aws" {
     role_arn     = "arn:aws:iam::${module.organizations.account_ids["log_archive"]}:role/InfraReadyLandingZoneBootstrap"
     session_name = "infraready-lz-log-archive"
   }
-
-  depends_on = [module.organizations]
 }
 
 provider "aws" {
@@ -71,8 +69,6 @@ provider "aws" {
     role_arn     = "arn:aws:iam::${module.organizations.account_ids["network"]}:role/InfraReadyLandingZoneBootstrap"
     session_name = "infraready-lz-network"
   }
-
-  depends_on = [module.organizations]
 }
 
 # ─── STEP 1: AWS ORGANIZATIONS ───────────────────────────────────────────────
@@ -86,9 +82,11 @@ module "organizations" {
     aws = aws.management
   }
 
-  org_name       = var.org_name
-  account_emails = var.account_emails
-  tags           = local.common_tags
+  org_name           = var.org_name
+  account_emails     = var.account_emails
+  monthly_budget_usd = var.monthly_budget_usd
+  budget_alert_email = var.budget_alert_email
+  tags               = local.common_tags
 }
 
 # ─── STEP 2: SERVICE CONTROL POLICIES ────────────────────────────────────────
@@ -110,6 +108,46 @@ module "scp" {
   depends_on = [module.organizations]
 }
 
+# ─── DELEGATED ADMIN SETUP (management account) ──────────────────────────────
+# These three resources run in the MANAGEMENT account and designate the security
+# account as the delegated administrator for GuardDuty, Security Hub, and Macie.
+# AWS requires delegated-admin registration to originate from the management account.
+# The security module then configures each service inside the security account.
+
+resource "aws_guardduty_organization_admin_account" "security" {
+  provider = aws.management
+
+  admin_account_id = module.organizations.account_ids["security"]
+
+  depends_on = [module.organizations]
+}
+
+resource "aws_securityhub_organization_admin_account" "security" {
+  provider = aws.management
+
+  admin_account_id = module.organizations.account_ids["security"]
+
+  depends_on = [module.organizations]
+}
+
+# Macie must be enabled in the management account before delegating
+resource "aws_macie2_account" "management" {
+  provider = aws.management
+
+  # ENABLED immediately; status can be PAUSED to suspend without deleting findings
+  status = "ENABLED"
+
+  depends_on = [module.organizations]
+}
+
+resource "aws_macie2_organization_admin_account" "security" {
+  provider = aws.management
+
+  admin_account_id = module.organizations.account_ids["security"]
+
+  depends_on = [aws_macie2_account.management]
+}
+
 # ─── STEP 3a: SECURITY SERVICES ──────────────────────────────────────────────
 # GuardDuty org admin, Security Hub, Config aggregator.
 # Runs in the security account.
@@ -126,7 +164,15 @@ module "security" {
   security_account_id   = module.organizations.account_ids["security"]
   tags                  = local.common_tags
 
-  depends_on = [module.scp]
+  # Must wait for delegated admin registration to complete before the security
+  # account can call aws_guardduty_organization_configuration or
+  # aws_securityhub_organization_configuration.
+  depends_on = [
+    module.scp,
+    aws_guardduty_organization_admin_account.security,
+    aws_securityhub_organization_admin_account.security,
+    aws_macie2_organization_admin_account.security,
+  ]
 }
 
 # ─── STEP 3b: LOGGING INFRASTRUCTURE ─────────────────────────────────────────

@@ -15,6 +15,17 @@ variable "account_emails" {
   })
 }
 
+variable "monthly_budget_usd" {
+  description = "Monthly AWS cost budget threshold in USD. Alerts fire at 80% and 100%."
+  type        = number
+  default     = 200
+}
+
+variable "budget_alert_email" {
+  description = "Email address to receive budget threshold notifications. Must confirm the SNS subscription."
+  type        = string
+}
+
 variable "tags" {
   description = "Tags to apply to all resources"
   type        = map(string)

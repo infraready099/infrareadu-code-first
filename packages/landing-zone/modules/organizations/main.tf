@@ -28,8 +28,9 @@ locals {
 # ─── AWS ORGANIZATION ────────────────────────────────────────────────────────
 
 resource "aws_organizations_organization" "this" {
-  # ALL_FEATURES is required for SCPs, delegated admins, and service access
-  feature_set = "ALL_FEATURES"
+  # ALL is the correct value for full-features mode (SCPs, delegated admins, service access).
+  # AWS docs say "ALL" = All Features; "CONSOLIDATED_BILLING" = billing-only mode.
+  feature_set = "ALL"
 
   # Enable service access so these services can operate org-wide.
   # Each entry allows the service's APIs to call Organizations on your behalf.
@@ -232,4 +233,93 @@ resource "aws_organizations_account" "dev" {
   lifecycle {
     ignore_changes = [email, name, role_name]
   }
+}
+
+# ─── IAM ACCOUNT PASSWORD POLICY ─────────────────────────────────────────────
+# CIS AWS Foundations 1.8–1.11 — Strong password policy for IAM users.
+# Applies to the management account. Member account password policies should be
+# set via a Config rule or StackSet — this covers the management account root.
+#
+# SOC2 CC6.1: Logical access controls.
+
+resource "aws_iam_account_password_policy" "this" {
+  minimum_password_length        = 14
+  require_numbers                = true
+  require_symbols                = true
+  require_uppercase_characters   = true
+  require_lowercase_characters   = true
+  allow_users_to_change_password = true
+  hard_expiry                    = false
+  max_password_age               = 90
+  password_reuse_prevention      = 24
+}
+
+# ─── IAM ACCESS ANALYZER (ORGANIZATION LEVEL) ─────────────────────────────────
+# IAM Access Analyzer identifies resource-based policies granting unintended
+# external access. Organization-level analyzer covers all member accounts.
+#
+# CIS AWS Foundations 1.21 — IAM Access Analyzer enabled.
+# SOC2 CC6.3: Logical and physical access removed on termination.
+
+resource "aws_accessanalyzer_analyzer" "org" {
+  analyzer_name = "${var.org_name}-org-analyzer"
+  type          = "ORGANIZATION"
+
+  tags = merge(local.common_tags, {
+    Name = "${var.org_name}-org-analyzer"
+  })
+
+  depends_on = [aws_organizations_organization.this]
+}
+
+# ─── ROOT ACCOUNT ACTIVITY ALARM ─────────────────────────────────────────────
+# CIS AWS Foundations 1.7 — Alert on root account logins.
+# CloudTrail metric filter + CloudWatch alarm + SNS notification.
+#
+# NOTE: CloudTrail must be enabled and delivering to CloudWatch Logs in the
+# management account. The org trail (in the logging module) covers this.
+# This alarm references the log group created by the org CloudTrail.
+
+resource "aws_cloudwatch_log_metric_filter" "root_login" {
+  name           = "${var.org_name}-root-account-usage"
+  log_group_name = "/aws/cloudtrail/${var.org_name}-org-trail"
+
+  pattern = "{ $.userIdentity.type = \"Root\" && $.userIdentity.invokedBy NOT EXISTS && $.eventType != \"AwsServiceEvent\" }"
+
+  metric_transformation {
+    name      = "RootAccountUsage"
+    namespace = "${var.org_name}/CISControls"
+    value     = "1"
+  }
+}
+
+resource "aws_sns_topic" "root_login_alerts" {
+  name = "${var.org_name}-root-login-alerts"
+
+  tags = merge(local.common_tags, {
+    Name = "${var.org_name}-root-login-alerts"
+  })
+}
+
+resource "aws_cloudwatch_metric_alarm" "root_login" {
+  alarm_name          = "${var.org_name}-root-account-usage"
+  alarm_description   = "Root account activity detected. CIS 1.7 — immediate investigation required."
+  metric_name         = "RootAccountUsage"
+  namespace           = "${var.org_name}/CISControls"
+  statistic           = "Sum"
+  period              = 60
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.root_login_alerts.arn]
+
+  tags = merge(local.common_tags, {
+    Name        = "${var.org_name}-root-login-alarm"
+    CISControl  = "1.7"
+    SOC2Control = "CC7.3"
+  })
+
+  depends_on = [aws_cloudwatch_log_metric_filter.root_login]
 }
