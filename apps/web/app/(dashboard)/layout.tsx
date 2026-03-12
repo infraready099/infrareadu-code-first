@@ -20,12 +20,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const initials    = displayName[0]?.toUpperCase() ?? "U";
 
   return (
-    <div className="flex h-screen" style={{ background: "#04091A" }}>
+    <div className="flex h-screen" style={{ background: "#0a0a0a" }}>
       {/* Sidebar */}
       <aside
         className="w-56 flex flex-col shrink-0"
         style={{
-          background: "#04091A",
+          background: "#0a0a0a",
           borderRight: "1px solid rgba(255,255,255,0.06)",
         }}
       >
@@ -39,8 +39,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
             <div
               className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
               style={{
-                background: "linear-gradient(135deg, #0EA5E9 0%, #6366F1 100%)",
-                boxShadow: "0 0 16px rgba(14,165,233,0.35)",
+                background: "linear-gradient(135deg, #f97316 0%, #ea580c 100%)",
+                boxShadow: "0 0 16px rgba(249,115,22,0.35)",
               }}
             >
               <Zap className="w-3.5 h-3.5 text-white" fill="currentColor" />
@@ -82,7 +82,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
               <div
                 className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
                 style={{
-                  background: "linear-gradient(135deg, #0EA5E9 0%, #6366F1 100%)",
+                  background: "linear-gradient(135deg, #f97316 0%, #ea580c 100%)",
                   color: "#fff",
                 }}
               >
@@ -116,7 +116,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-y-auto" style={{ background: "#04091A" }}>
+      <main className="flex-1 overflow-y-auto" style={{ background: "#0a0a0a" }}>
         {children}
       </main>
     </div>

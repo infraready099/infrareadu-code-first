@@ -18,7 +18,7 @@ interface Project {
 
 const STATUS_STYLES: Record<DeploymentStatus, { label: string; dot: string; text: string; bg: string; border: string }> = {
   pending:   { label: "Not deployed", dot: "bg-slate-500",   text: "text-slate-400",  bg: "bg-slate-500/10",  border: "border-slate-500/20" },
-  deploying: { label: "Deploying",    dot: "bg-sky-400 animate-pulse", text: "text-sky-400",   bg: "bg-sky-500/10",    border: "border-sky-500/20" },
+  deploying: { label: "Deploying",    dot: "bg-orange-400 animate-pulse", text: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20" },
   success:   { label: "Live",         dot: "bg-emerald-400", text: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20" },
   failed:    { label: "Failed",       dot: "bg-red-400",     text: "text-red-400",     bg: "bg-red-500/10",     border: "border-red-500/20" },
 };
@@ -67,8 +67,8 @@ export default async function ProjectsPage() {
           href="/projects/new"
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-all duration-150"
           style={{
-            background: "#0EA5E9",
-            boxShadow: "0 0 20px rgba(14,165,233,0.25)",
+            background: "#f97316",
+            boxShadow: "0 0 20px rgba(249,115,22,0.25)",
           }}
         >
           <Plus className="w-4 h-4" />
@@ -89,11 +89,11 @@ export default async function ProjectsPage() {
           <div
             className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-5"
             style={{
-              background: "rgba(14,165,233,0.08)",
-              border: "1px solid rgba(14,165,233,0.15)",
+              background: "rgba(249,115,22,0.08)",
+              border: "1px solid rgba(249,115,22,0.15)",
             }}
           >
-            <GitBranch className="w-6 h-6" style={{ color: "#38BDF8" }} />
+            <GitBranch className="w-6 h-6" style={{ color: "#fb923c" }} />
           </div>
 
           <h3
@@ -110,8 +110,8 @@ export default async function ProjectsPage() {
             href="/projects/new"
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all duration-150"
             style={{
-              background: "#0EA5E9",
-              boxShadow: "0 0 24px rgba(14,165,233,0.3)",
+              background: "#f97316",
+              boxShadow: "0 0 24px rgba(249,115,22,0.3)",
             }}
           >
             <Plus className="w-4 h-4" />

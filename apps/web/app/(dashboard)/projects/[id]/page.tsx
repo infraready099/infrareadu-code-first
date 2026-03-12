@@ -151,7 +151,7 @@ export default async function ProjectDetailPage({
               {p.aws_region}
             </span>
             {p.aws_account_id && (
-              <span className="font-mono text-sky-500/80">
+              <span className="font-mono text-orange-500/80">
                 {p.aws_account_id}
               </span>
             )}
@@ -194,7 +194,7 @@ export default async function ProjectDetailPage({
                   href={p.repo_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="hover:text-sky-400 transition-colors"
+                  className="hover:text-orange-400 transition-colors"
                 >
                   {p.repo_url.replace("https://github.com/", "")}
                 </a>

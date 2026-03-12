@@ -98,7 +98,7 @@ export function RealtimeLogs({ deploymentId, initialLogs, initialStatus }: Realt
           <div className="flex items-center justify-center text-gray-600 min-h-[160px] text-sm">
             {isLive ? (
               <span className="flex items-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin text-sky-500" />
+                <Loader2 className="w-4 h-4 animate-spin text-orange-500" />
                 Waiting for deployment to start...
               </span>
             ) : "No logs available."}
@@ -123,7 +123,7 @@ export function RealtimeLogs({ deploymentId, initialLogs, initialStatus }: Realt
 
       {/* Status footer */}
       {isLive && (
-        <p className="mt-3 text-xs text-sky-400 flex items-center gap-1.5">
+        <p className="mt-3 text-xs text-orange-400 flex items-center gap-1.5">
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
           Live — updating automatically
         </p>

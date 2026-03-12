@@ -157,10 +157,10 @@ function isValidRoleArn(arn: string): boolean {
 // ---------------------------------------------------------------------------
 
 const inputCls =
-  "w-full bg-[#0d1117] border border-white/[0.08] rounded-lg px-3.5 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500/50 transition-all";
+  "w-full bg-[#0d1117] border border-white/[0.08] rounded-lg px-3.5 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 transition-all";
 
 const selectCls =
-  "w-full bg-[#0d1117] border border-white/[0.08] rounded-lg px-3.5 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500/50 transition-all";
+  "w-full bg-[#0d1117] border border-white/[0.08] rounded-lg px-3.5 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 transition-all";
 
 // ---------------------------------------------------------------------------
 // Step progress bar
@@ -189,9 +189,9 @@ function StepBar({ current }: { current: Step }) {
                     ? { background: "#10B981", color: "#fff" }
                     : active
                     ? {
-                        background: "#0EA5E9",
+                        background: "#f97316",
                         color: "#fff",
-                        boxShadow: "0 0 0 4px rgba(14,165,233,0.18)",
+                        boxShadow: "0 0 0 4px rgba(249,115,22,0.18)",
                       }
                     : {
                         background: "rgba(255,255,255,0.05)",
@@ -322,13 +322,13 @@ function StepOne({
               onClick={() => onChange({ appType: opt.value })}
               className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl border text-center transition-all cursor-pointer ${
                 data.appType === opt.value
-                  ? "border-sky-500/50 bg-sky-500/10 ring-1 ring-sky-500/30"
+                  ? "border-orange-500/50 bg-orange-500/10 ring-1 ring-orange-500/30"
                   : "border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12] hover:bg-white/[0.04]"
               }`}
             >
               <span
                 className={`text-xs font-bold font-mono ${
-                  data.appType === opt.value ? "text-sky-400" : "text-gray-400"
+                  data.appType === opt.value ? "text-orange-400" : "text-gray-400"
                 }`}
               >
                 {opt.icon}
@@ -354,7 +354,7 @@ function StepOne({
       <button
         onClick={handleContinue}
         disabled={loading || !!urlError || !data.repoUrl || !data.projectName}
-        className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-sky-500 hover:bg-sky-400 disabled:bg-sky-500/40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all"
+        className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-orange-500 hover:bg-orange-400 disabled:bg-orange-500/40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all"
       >
         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
         {loading ? "Creating project…" : "Continue"}
@@ -430,7 +430,7 @@ function StepTwo({
       }`}>
         <div className="flex items-start gap-3">
           <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 mt-0.5 ${
-            cfClicked ? "bg-emerald-500 text-white" : "bg-sky-500/20 text-sky-400 border border-sky-500/30"
+            cfClicked ? "bg-emerald-500 text-white" : "bg-orange-500/20 text-orange-400 border border-orange-500/30"
           }`}>
             {cfClicked ? <Check className="w-3.5 h-3.5" /> : "1"}
           </div>
@@ -462,7 +462,7 @@ function StepTwo({
 
         <div>
           <p className="text-xs text-gray-500 mb-1.5">Your External ID (pre-filled in the stack)</p>
-          <code className="block text-xs bg-[#0d1117] border border-white/[0.06] rounded-lg px-3 py-2 text-sky-300 font-mono break-all">
+          <code className="block text-xs bg-[#0d1117] border border-white/[0.06] rounded-lg px-3 py-2 text-orange-300 font-mono break-all">
             {data.externalId}
           </code>
         </div>
@@ -474,7 +474,7 @@ function StepTwo({
       }`}>
         <div className="flex items-start gap-3">
           <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 mt-0.5 ${
-            isConnected ? "bg-emerald-500 text-white" : "bg-sky-500/20 text-sky-400 border border-sky-500/30"
+            isConnected ? "bg-emerald-500 text-white" : "bg-orange-500/20 text-orange-400 border border-orange-500/30"
           }`}>
             {isConnected ? <Check className="w-3.5 h-3.5" /> : "2"}
           </div>
@@ -510,7 +510,7 @@ function StepTwo({
             <button
               onClick={handleVerify}
               disabled={verifying || !data.roleArn || !!arnError}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 disabled:bg-sky-500/40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-400 disabled:bg-orange-500/40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all"
             >
               {verifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
               {verifying ? "Verifying…" : "Verify Connection"}
@@ -563,7 +563,7 @@ function TierCard({
       }`}
     >
       {selected && (
-        <div className="absolute top-3 right-3 w-4 h-4 rounded-full bg-sky-500 flex items-center justify-center">
+        <div className="absolute top-3 right-3 w-4 h-4 rounded-full bg-orange-500 flex items-center justify-center">
           <Check className="w-2.5 h-2.5 text-white" />
         </div>
       )}
@@ -599,14 +599,14 @@ function ModuleToggle({
     <label
       className={`flex items-center gap-3.5 px-4 py-3 rounded-lg border transition-all cursor-pointer ${
         disabled
-          ? "border-sky-500/20 bg-sky-500/[0.03] cursor-not-allowed"
+          ? "border-orange-500/20 bg-orange-500/[0.03] cursor-not-allowed"
           : checked
-          ? "border-sky-500/30 bg-sky-500/[0.05] hover:bg-sky-500/[0.08]"
+          ? "border-orange-500/30 bg-orange-500/[0.05] hover:bg-orange-500/[0.08]"
           : "border-white/[0.06] bg-white/[0.02] hover:border-white/[0.1] hover:bg-white/[0.04]"
       }`}
     >
       <div className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${
-        checked ? "bg-sky-500/20 text-sky-400" : "bg-white/[0.05] text-gray-500"
+        checked ? "bg-orange-500/20 text-orange-400" : "bg-white/[0.05] text-gray-500"
       }`}>
         {icon}
       </div>
@@ -614,7 +614,7 @@ function ModuleToggle({
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium text-gray-200">{title}</p>
           {disabled && (
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-400">
+            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400">
               required
             </span>
           )}
@@ -622,7 +622,7 @@ function ModuleToggle({
         <p className="text-xs text-gray-500 mt-0.5 truncate">{description}</p>
       </div>
       <div className={`w-9 h-5 rounded-full transition-all relative shrink-0 ${
-        checked ? "bg-sky-500" : "bg-gray-700"
+        checked ? "bg-orange-500" : "bg-gray-700"
       } ${disabled ? "opacity-60" : ""}`}>
         <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
           checked ? "left-[calc(100%-18px)]" : "left-0.5"
@@ -900,7 +900,7 @@ function StepThree({
         <button
           onClick={handleDeploy}
           disabled={deploying}
-          className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-sky-500 hover:bg-sky-400 disabled:bg-sky-500/40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all"
+          className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-orange-500 hover:bg-orange-400 disabled:bg-orange-500/40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all"
         >
           {deploying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
           {deploying ? "Queuing deployment…" : "Deploy Infrastructure"}

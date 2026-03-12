@@ -49,7 +49,7 @@ function CopyButton({ value }: { value: string }) {
     setTimeout(() => setCopied(false), 2000);
   };
   return (
-    <button onClick={copy} className="ml-2 text-gray-500 hover:text-sky-400 transition-colors shrink-0" title="Copy">
+    <button onClick={copy} className="ml-2 text-gray-500 hover:text-orange-400 transition-colors shrink-0" title="Copy">
       {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
     </button>
   );
@@ -83,8 +83,8 @@ function ResourceCard({
   awsConsoleUrl?: string;
 }) {
   const [expanded, setExpanded] = useState(true);
-  const borderColor = accentColor === "emerald" ? "border-emerald-500/20" : accentColor === "violet" ? "border-violet-500/20" : accentColor === "amber" ? "border-amber-500/20" : "border-sky-500/20";
-  const iconColor = accentColor === "emerald" ? "text-emerald-400" : accentColor === "violet" ? "text-violet-400" : accentColor === "amber" ? "text-amber-400" : "text-sky-400";
+  const borderColor = accentColor === "emerald" ? "border-emerald-500/20" : accentColor === "violet" ? "border-violet-500/20" : accentColor === "amber" ? "border-amber-500/20" : "border-orange-500/20";
+  const iconColor = accentColor === "emerald" ? "text-emerald-400" : accentColor === "violet" ? "text-violet-400" : accentColor === "amber" ? "text-amber-400" : "text-orange-400";
 
   return (
     <div className={`card border ${borderColor}`}>
@@ -103,7 +103,7 @@ function ResourceCard({
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="text-xs text-gray-500 hover:text-sky-400 flex items-center gap-1 transition-colors"
+              className="text-xs text-gray-500 hover:text-orange-400 flex items-center gap-1 transition-colors group-hover:text-orange-400/80"
             >
               AWS Console <ExternalLink className="w-3 h-3" />
             </a>
@@ -315,7 +315,7 @@ export function ResourceOutputs({ outputs, projectName, awsRegion, awsAccountId 
               </button>
             </div>
             <p className="text-xs text-gray-500 mb-3">
-              Add this to <code className="text-sky-400">.github/workflows/deploy.yml</code> in your repo to enable auto-deploy on push.
+              Add this to <code className="text-orange-400">.github/workflows/deploy.yml</code> in your repo to enable auto-deploy on push.
             </p>
             <pre className="text-xs text-gray-400 bg-black/40 rounded-lg p-3 overflow-x-auto max-h-48">
               {outputs.github_workflow_yaml}
