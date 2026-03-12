@@ -9,6 +9,7 @@ import { writeFileSync, mkdirSync, cpSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { S3Client } from "@aws-sdk/client-s3";
+import { EC2Client, DescribeVpcsCommand, DescribeAddressesCommand } from "@aws-sdk/client-ec2";
 
 const execFileAsync = promisify(execFile);
 
@@ -141,6 +142,55 @@ async function tryImportOrphans(
 ): Promise<void> {
   const name = `${config.project_name}-${config.environment ?? "production"}`;
   const accountId = env.AWS_ACCOUNT_ID ?? "";
+  const region = env.AWS_DEFAULT_REGION ?? (config.region as string) ?? "us-east-1";
+
+  // For the VPC module: look up the VPC by Name tag so we can import it even if state was lost.
+  // This prevents VpcLimitExceeded on retries — existing VPC is reconciled rather than recreated.
+  if (module === "vpc") {
+    try {
+      const ec2 = new EC2Client({
+        region,
+        credentials: {
+          accessKeyId: env.AWS_ACCESS_KEY_ID!,
+          secretAccessKey: env.AWS_SECRET_ACCESS_KEY!,
+          sessionToken: env.AWS_SESSION_TOKEN,
+        },
+      });
+      const result = await ec2.send(new DescribeVpcsCommand({
+        Filters: [{ Name: "tag:Name", Values: [`${name}-vpc`] }],
+      }));
+      const vpcId = result.Vpcs?.[0]?.VpcId;
+      if (vpcId) {
+        const tfvarsPath = join(workDir, "terraform.tfvars.json");
+        try {
+          await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, "aws_vpc.this", vpcId], { cwd: workDir, env });
+          await onLog("info", `[tofu] Imported existing VPC ${vpcId} into state`);
+        } catch {
+          // Already in state — fine
+        }
+      }
+
+      // Import existing EIPs for NAT gateways (tagged with the project name)
+      // Prevents AddressLimitExceeded when retrying after a partial deploy
+      const eipResult = await ec2.send(new DescribeAddressesCommand({
+        Filters: [{ Name: "tag:Project", Values: [String(config.project_name)] }],
+      }));
+      const eips = eipResult.Addresses ?? [];
+      for (let i = 0; i < eips.length; i++) {
+        const allocationId = eips[i].AllocationId;
+        if (!allocationId) continue;
+        const tfvarsPath = join(workDir, "terraform.tfvars.json");
+        try {
+          await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, `aws_eip.nat[${i}]`, allocationId], { cwd: workDir, env });
+          await onLog("info", `[tofu] Imported existing EIP ${allocationId} as nat[${i}]`);
+        } catch {
+          // Already in state — fine
+        }
+      }
+    } catch {
+      // EC2 lookup failed (permissions, network) — proceed without import
+    }
+  }
 
   // Map of module → [ [resource_address, resource_id], ... ]
   const imports: Record<string, [string, string][]> = {
@@ -188,6 +238,8 @@ async function runTofu(
       stdio: ["ignore", "pipe", "pipe"],
     });
 
+    const errorLines: string[] = [];
+
     child.stdout.on("data", async (data: Buffer) => {
       const lines = data.toString().split("\n").filter(Boolean);
       for (const line of lines) {
@@ -195,6 +247,7 @@ async function runTofu(
           : line.includes("Warning") ? "warn"
           : line.startsWith("Apply complete") || line.includes("created") ? "success"
           : "info";
+        if (level === "error") errorLines.push(line);
         await onLog(level, line);
       }
     });
@@ -202,13 +255,21 @@ async function runTofu(
     child.stderr.on("data", async (data: Buffer) => {
       const lines = data.toString().split("\n").filter(Boolean);
       for (const line of lines) {
+        errorLines.push(line);
         await onLog("error", line);
       }
     });
 
     child.on("close", (code: number) => {
       if (code === 0) resolve();
-      else reject(new Error(`OpenTofu exited with code ${code}`));
+      else {
+        // Include the last error lines in the message so callers can classify the error
+        const detail = errorLines.slice(-10).join(" ").trim();
+        const msg = detail
+          ? `OpenTofu exited with code ${code}: ${detail}`
+          : `OpenTofu exited with code ${code}`;
+        reject(new Error(msg));
+      }
     });
   });
 }
@@ -230,7 +291,7 @@ async function ensureStateBucket(
     await s3.send(new CreateBucketCommand({
       Bucket: bucketName,
       ...(region !== "us-east-1" && {
-        CreateBucketConfiguration: { LocationConstraint: region as "us-east-1" }
+        CreateBucketConfiguration: { LocationConstraint: region as import("@aws-sdk/client-s3").BucketLocationConstraint }
       }),
     }));
 

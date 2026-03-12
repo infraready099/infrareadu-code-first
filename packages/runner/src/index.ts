@@ -12,7 +12,7 @@
 
 import { SQSEvent, SQSRecord } from "aws-lambda";
 import { STSClient, AssumeRoleCommand } from "@aws-sdk/client-sts";
-import { execOpenTofu, destroyOpenTofu } from "./opentofu";
+import { execOpenTofu } from "./opentofu";
 import { createClient } from "@supabase/supabase-js";
 import { generateConfig, ModuleType, IaCEngine } from "./services/terraform-generator";
 import { scanHcl, formatScanReport, DEFAULT_FRAMEWORKS, DEFAULT_BLOCK_ON } from "./services/security-scan";
@@ -272,34 +272,24 @@ async function processRecord(record: SQSRecord): Promise<void> {
     const userFriendlyError = friendlyError(error.message);
     await appendLog(deploymentId, "error", `\n[InfraReady] Deployment failed: ${userFriendlyError}`);
 
-    // Auto-rollback: destroy all successfully deployed modules in reverse order
-    if (deployedModules.length > 0 && credentials) {
-      await appendLog(deploymentId, "warn", `\n[InfraReady] Rolling back ${deployedModules.length} deployed module(s)...`);
+    // ── No auto-rollback ─────────────────────────────────────────────────────
+    // We intentionally do NOT destroy resources on failure.
+    //
+    // Why: OpenTofu state is persisted in S3. If we destroy on failure, the
+    // rollback itself often fails (e.g., NAT Gateway dependencies on VPC), leaving
+    // orphaned resources with no state — meaning the next deploy tries to re-create
+    // everything, hits "already exists" or VpcLimitExceeded, and loops forever.
+    //
+    // Correct approach: leave state intact. "Deploy Again" reruns `tofu apply`
+    // against the existing state — OpenTofu only creates what's missing and
+    // skips what already exists. This is how Terraform/OpenTofu is designed to work.
+    // ────────────────────────────────────────────────────────────────────────────
 
-      for (const moduleName of [...deployedModules].reverse()) {
-        try {
-          await appendLog(deploymentId, "warn", `[Rollback] Destroying ${moduleName}...`);
-          const moduleConfig = buildModuleConfig(moduleName, job.config, {});
-          await destroyOpenTofu({
-            module: moduleName,
-            config: moduleConfig,
-            credentials,
-            deploymentId,
-            projectId: job.projectId,
-            region,
-            awsAccountId,
-            onLog: (level, line) => appendLog(deploymentId, level, line),
-          });
-          await appendLog(deploymentId, "warn", `[Rollback] ${moduleName} destroyed`);
-        } catch (destroyErr) {
-          await appendLog(deploymentId, "error",
-            `[Rollback] Failed to destroy ${moduleName}: ${(destroyErr as Error).message}. ` +
-            `Check your AWS console for leftover resources.`
-          );
-        }
-      }
-
-      await appendLog(deploymentId, "warn", "[InfraReady] Rollback complete. AWS account has been cleaned up.");
+    if (deployedModules.length > 0) {
+      await appendLog(deploymentId, "info",
+        `\n[InfraReady] ${deployedModules.join(", ")} deployed successfully before the failure. ` +
+        `Click "Deploy Again" — we'll resume from where we left off without re-creating existing resources.`
+      );
     }
 
     await updateDeployment(deploymentId, {
