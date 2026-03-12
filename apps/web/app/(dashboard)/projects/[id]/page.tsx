@@ -241,59 +241,61 @@ export default async function ProjectDetailPage({
 
         {/* Latest deployment */}
         {deployment ? (
-          <div className="card">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wide flex items-center gap-2">
-                <Terminal className="w-4 h-4" />
-                Latest deployment
-              </h2>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-gray-500 font-mono">{deployment.id.slice(0, 8)}</span>
-                <StatusBadge status={deployment.status} />
+          <>
+            <div className="card">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wide flex items-center gap-2">
+                  <Terminal className="w-4 h-4" />
+                  Latest deployment
+                </h2>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-gray-500 font-mono">{deployment.id.slice(0, 8)}</span>
+                  <StatusBadge status={deployment.status} />
+                </div>
               </div>
+
+              {/* Modules deployed */}
+              {deployment.modules && deployment.modules.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-4">
+                  {deployment.modules.map((mod) => (
+                    <span
+                      key={mod}
+                      className="text-xs bg-gray-800 border border-gray-700 text-gray-400 px-2 py-0.5 rounded-full font-mono"
+                    >
+                      {mod}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Live log output — subscribes to Supabase Realtime while deploying */}
+              <RealtimeLogs
+                deploymentId={deployment.id}
+                initialLogs={logs}
+                initialStatus={deployment.status}
+              />
+
+              <p className="mt-3 text-xs text-gray-600">
+                Started{" "}
+                {new Date(deployment.created_at).toLocaleString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </p>
             </div>
 
-            {/* Modules deployed */}
-            {deployment.modules && deployment.modules.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-4">
-                {deployment.modules.map((mod) => (
-                  <span
-                    key={mod}
-                    className="text-xs bg-gray-800 border border-gray-700 text-gray-400 px-2 py-0.5 rounded-full font-mono"
-                  >
-                    {mod}
-                  </span>
-                ))}
-              </div>
+            {/* Resource outputs — shown after successful deployment */}
+            {deployment.status === "success" && deployment.outputs && (
+              <ResourceOutputs
+                outputs={deployment.outputs as Parameters<typeof ResourceOutputs>[0]["outputs"]}
+                projectName={p.name}
+                awsRegion={p.aws_region}
+                awsAccountId={p.aws_account_id}
+              />
             )}
-
-            {/* Live log output — subscribes to Supabase Realtime while deploying */}
-            <RealtimeLogs
-              deploymentId={deployment.id}
-              initialLogs={logs}
-              initialStatus={deployment.status}
-            />
-
-            <p className="mt-3 text-xs text-gray-600">
-              Started{" "}
-              {new Date(deployment.created_at).toLocaleString("en-US", {
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </p>
-          </div>
-
-        {/* Resource outputs — shown after successful deployment */}
-        {deployment.status === "success" && deployment.outputs && (
-          <ResourceOutputs
-            outputs={deployment.outputs as Parameters<typeof ResourceOutputs>[0]["outputs"]}
-            projectName={p.name}
-            awsRegion={p.aws_region}
-            awsAccountId={p.aws_account_id}
-          />
-        )}
+          </>
         ) : (
           /* No deployments yet */
           <div className="card text-center py-12">
