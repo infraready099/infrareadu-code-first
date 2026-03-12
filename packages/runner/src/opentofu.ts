@@ -5,7 +5,7 @@
 
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { writeFileSync, mkdirSync, readFileSync } from "fs";
+import { writeFileSync, mkdirSync, cpSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
@@ -70,17 +70,21 @@ terraform {
 
   const moduleSource = join(MODULES_PATH, module);
 
+  // Copy module .tf files into workDir so all tofu commands run there
+  // (OpenTofu 1.9 no longer accepts a positional directory argument)
+  cpSync(moduleSource, workDir, { recursive: true });
+
   // Ensure state bucket exists in customer's account
   await ensureStateBucket(stateBucket, region, credentials);
 
   // tofu init
   await onLog("info", `[tofu] Initializing module ${module}...`);
-  await runTofu(["init", "-backend-config", backendConfigPath, "-reconfigure", moduleSource], workDir, env, onLog);
+  await runTofu(["init", `-backend-config=${backendConfigPath}`, "-reconfigure"], workDir, env, onLog);
 
   // tofu plan
   await onLog("info", `[tofu] Planning ${module}...`);
   const planPath = join(workDir, "plan.out");
-  await runTofu(["plan", "-var-file", tfvarsPath, "-out", planPath, moduleSource], workDir, env, onLog);
+  await runTofu(["plan", `-var-file=${tfvarsPath}`, `-out=${planPath}`], workDir, env, onLog);
 
   // tofu apply
   await onLog("info", `[tofu] Applying ${module}...`);

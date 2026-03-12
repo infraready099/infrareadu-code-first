@@ -974,7 +974,7 @@ export default function NewProjectPage() {
 
   return (
     <div
-      className="min-h-full flex flex-col"
+      className="h-screen flex flex-col overflow-hidden"
       style={{ background: "#04091A" }}
     >
       {/* Radial glow atmosphere */}
@@ -1004,7 +1004,8 @@ export default function NewProjectPage() {
       </div>
 
       {/* Content area */}
-      <div className="relative z-10 flex-1 flex items-start justify-center px-4 py-12">
+      <div className="relative z-10 flex-1 overflow-y-auto">
+        <div className="flex items-start justify-center px-4 py-12">
         <div className="w-full max-w-xl">
 
           {/* Step header */}
@@ -1068,6 +1069,7 @@ export default function NewProjectPage() {
               onBack={() => setStep(2)}
             />
           )}
+        </div>
         </div>
       </div>
     </div>

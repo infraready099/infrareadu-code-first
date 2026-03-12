@@ -31,6 +31,23 @@ export function RealtimeLogs({ deploymentId, initialLogs, initialStatus }: Realt
 
   const isLive = status === "queued" || status === "running";
 
+  // On mount, fetch current state in case we missed updates before subscribing
+  useEffect(() => {
+    if (!isLive) return;
+    supabase
+      .from("deployments")
+      .select("logs, status")
+      .eq("id", deploymentId)
+      .single()
+      .then(({ data }) => {
+        if (data) {
+          setLogs((data.logs as LogLine[]) ?? []);
+          setStatus(data.status as string);
+        }
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deploymentId]);
+
   // Subscribe to realtime updates on this deployment row
   useEffect(() => {
     if (!isLive) return;
