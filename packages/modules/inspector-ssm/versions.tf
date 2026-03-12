@@ -6,4 +6,6 @@ terraform {
       version = "~> 5.80"
     }
   }
+
+  backend "s3" {}
 }

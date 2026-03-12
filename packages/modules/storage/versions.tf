@@ -7,4 +7,6 @@ terraform {
       configuration_aliases = [aws.us_east_1]
     }
   }
+
+  backend "s3" {}
 }
