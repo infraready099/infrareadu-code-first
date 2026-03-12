@@ -43,17 +43,13 @@ export async function execOpenTofu(opts: OpenTofuOptions): Promise<Record<string
   writeFileSync(tfvarsPath, JSON.stringify(config, null, 2));
 
   // Write backend config — state in customer's own S3 bucket
-  const backendConfigPath = join(workDir, "backend.tf");
+  // NOTE: -backend-config=FILE expects raw HCL attributes only, NOT a terraform{} block
+  const backendConfigPath = join(workDir, "backend.hcl");
   const stateBucket = `infraready-state-${config.project_name}-${region}`;
-  writeFileSync(backendConfigPath, `
-terraform {
-  backend "s3" {
-    bucket  = "${stateBucket}"
-    key     = "${module}/terraform.tfstate"
-    region  = "${region}"
-    encrypt = true
-  }
-}
+  writeFileSync(backendConfigPath, `bucket  = "${stateBucket}"
+key     = "${module}/terraform.tfstate"
+region  = "${region}"
+encrypt = true
 `);
 
   // Environment with customer's temporary credentials
