@@ -59,6 +59,14 @@ const FATAL_PATTERNS = [
   "AccountProblem",
   "SignatureDoesNotMatch",
   "InvalidSignatureException",
+  // AWS account quota errors — retrying will never succeed
+  "VpcLimitExceeded",
+  "AddressLimitExceeded",
+  "InstanceLimitExceeded",
+  "SubnetLimitExceeded",
+  "SecurityGroupLimitExceeded",
+  "InternetGatewayLimitExceeded",
+  "EIPLimitExceeded",
 ];
 
 type ErrorClass = "retryable" | "fatal" | "recoverable";
@@ -87,6 +95,15 @@ function friendlyError(msg: string): string {
   }
   if (msg.includes("InsufficientInstanceCapacity")) {
     return "AWS doesn't have capacity for the selected instance type in this AZ right now. Try a different region or instance type.";
+  }
+  if (msg.includes("VpcLimitExceeded")) {
+    return "Your AWS account has reached the VPC limit (default: 5 per region). Delete unused VPCs at console.aws.amazon.com/vpc, or request a limit increase at console.aws.amazon.com/servicequotas.";
+  }
+  if (msg.includes("AddressLimitExceeded") || msg.includes("EIPLimitExceeded")) {
+    return "Your AWS account has reached the Elastic IP limit. Release unused EIPs at console.aws.amazon.com/ec2 → Elastic IPs.";
+  }
+  if (msg.includes("InstanceLimitExceeded")) {
+    return "Your AWS account has reached the EC2 instance limit for this instance type. Request a limit increase at console.aws.amazon.com/servicequotas.";
   }
   return msg;
 }
