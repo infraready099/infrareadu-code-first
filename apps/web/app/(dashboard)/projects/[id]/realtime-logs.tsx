@@ -26,23 +26,42 @@ export function RealtimeLogs({ deploymentId, initialLogs, initialStatus }: Realt
   const isFailed  = status === "failed";
   const isSuccess = status === "success";
 
-  // On mount, fetch current state in case Lambda finished before we subscribed
-  useEffect(() => {
-    supabase
+  const statusRef = useRef(status);
+  statusRef.current = status;
+
+  const fetchLatest = async () => {
+    const { data } = await supabase
       .from("deployments")
       .select("logs, status")
       .eq("id", deploymentId)
-      .single()
-      .then(({ data }) => {
-        if (data) {
-          setLogs((data.logs as LogLine[]) ?? []);
-          setStatus(data.status as string);
-        }
-      });
+      .single();
+    if (data) {
+      setLogs((data.logs as LogLine[]) ?? []);
+      setStatus(data.status as string);
+    }
+  };
+
+  // Fetch immediately on mount to catch up with any missed updates
+  useEffect(() => {
+    fetchLatest();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deploymentId]);
 
-  // Subscribe to realtime updates
+  // Poll every 3s while live — reliable fallback if realtime WebSocket is slow
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const live = statusRef.current === "queued" || statusRef.current === "running";
+      if (!live) {
+        clearInterval(interval);
+        return;
+      }
+      fetchLatest();
+    }, 3000);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deploymentId]);
+
+  // Realtime subscription as bonus fast-path on top of polling
   useEffect(() => {
     if (!isLive) return;
 
