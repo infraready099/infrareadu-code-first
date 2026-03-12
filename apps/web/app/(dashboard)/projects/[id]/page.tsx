@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Metadata } from "next";
 import { RealtimeLogs } from "./realtime-logs";
+import { ResourceOutputs } from "./resource-outputs";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,6 +44,7 @@ interface Deployment {
   status: DeploymentStatus;
   modules: string[];
   logs: LogLine[];
+  outputs: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }
@@ -282,6 +284,16 @@ export default async function ProjectDetailPage({
               })}
             </p>
           </div>
+
+        {/* Resource outputs — shown after successful deployment */}
+        {deployment.status === "success" && deployment.outputs && (
+          <ResourceOutputs
+            outputs={deployment.outputs as Parameters<typeof ResourceOutputs>[0]["outputs"]}
+            projectName={p.name}
+            awsRegion={p.aws_region}
+            awsAccountId={p.aws_account_id}
+          />
+        )}
         ) : (
           /* No deployments yet */
           <div className="card text-center py-12">

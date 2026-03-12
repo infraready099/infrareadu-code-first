@@ -3,11 +3,16 @@
  *
  * Triggered by SQS. Assumes customer's IAM role, runs OpenTofu,
  * streams logs back to Supabase in real time.
+ *
+ * Deployment state machine:
+ *   QUEUED → running → (per module: init → import → plan → apply) → success
+ *   On retryable failure: auto-retry up to 3x with backoff
+ *   On permanent failure: auto-destroy all created resources → failed
  */
 
 import { SQSEvent, SQSRecord } from "aws-lambda";
 import { STSClient, AssumeRoleCommand } from "@aws-sdk/client-sts";
-import { execOpenTofu } from "./opentofu";
+import { execOpenTofu, destroyOpenTofu } from "./opentofu";
 import { createClient } from "@supabase/supabase-js";
 import { generateConfig, ModuleType, IaCEngine } from "./services/terraform-generator";
 import { scanHcl, formatScanReport, DEFAULT_FRAMEWORKS, DEFAULT_BLOCK_ON } from "./services/security-scan";
@@ -17,8 +22,76 @@ const sts = new STSClient({ region: process.env.AWS_REGION ?? "us-east-1" });
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! // Service role — can write to any row
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+// ─── Retry policy ────────────────────────────────────────────────────────────
+
+const RETRY_DELAYS_MS = [30_000, 60_000, 120_000]; // 30s, 1min, 2min
+const MAX_ATTEMPTS = 3;
+
+/**
+ * Errors that indicate a transient AWS condition — safe to retry.
+ * The runner will wait and try again up to MAX_ATTEMPTS times.
+ */
+const RETRYABLE_PATTERNS = [
+  "RequestExpired",
+  "Throttling",
+  "ThrottlingException",
+  "RequestLimitExceeded",
+  "ServiceUnavailable",
+  "InsufficientInstanceCapacity",
+  "InsufficientCapacityException",
+  "RequestTimeout",
+  "ProviderProducedInconsistentResultAfterApply", // transient tofu issue
+];
+
+/**
+ * Errors that are fatal — stop immediately and alert the user.
+ * Retrying will not help and may make things worse.
+ */
+const FATAL_PATTERNS = [
+  "AuthFailure",
+  "UnauthorizedOperation",
+  "InvalidClientTokenId",
+  "AccessDenied",
+  "NotAuthorized",
+  "AccountProblem",
+  "SignatureDoesNotMatch",
+  "InvalidSignatureException",
+];
+
+type ErrorClass = "retryable" | "fatal" | "recoverable";
+
+function classifyError(err: Error): ErrorClass {
+  const msg = err.message;
+  if (FATAL_PATTERNS.some((p) => msg.includes(p))) return "fatal";
+  if (RETRYABLE_PATTERNS.some((p) => msg.includes(p))) return "retryable";
+  // Default: treat as recoverable (destroy and retry fresh)
+  return "recoverable";
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function friendlyError(msg: string): string {
+  if (msg.includes("AuthFailure") || msg.includes("AccessDenied") || msg.includes("UnauthorizedOperation")) {
+    return "AWS permissions error — InfraReady's IAM role may not have the required permissions. Check the bootstrap CloudFormation stack is up to date.";
+  }
+  if (msg.includes("InvalidClientTokenId") || msg.includes("SignatureDoesNotMatch")) {
+    return "AWS credentials are invalid or expired. Try disconnecting and reconnecting your AWS account.";
+  }
+  if (msg.includes("Throttling") || msg.includes("RequestLimitExceeded")) {
+    return "AWS is rate limiting requests. This is temporary — your deployment will retry automatically.";
+  }
+  if (msg.includes("InsufficientInstanceCapacity")) {
+    return "AWS doesn't have capacity for the selected instance type in this AZ right now. Try a different region or instance type.";
+  }
+  return msg;
+}
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface DeployJob {
   deploymentId: string;
@@ -28,11 +101,18 @@ interface DeployJob {
   config: Record<string, unknown>;
   awsRoleArn: string;
   awsExternalId: string;
-  // Optional GitHub context — present when triggered by a push event
   githubRepoOwner?: string;
   githubRepoName?: string;
   githubBranch?: string;
 }
+
+type Credentials = {
+  accessKeyId: string;
+  secretAccessKey: string;
+  sessionToken: string;
+};
+
+// ─── Lambda handler ──────────────────────────────────────────────────────────
 
 export const handler = async (event: SQSEvent): Promise<void> => {
   for (const record of event.Records) {
@@ -40,37 +120,45 @@ export const handler = async (event: SQSEvent): Promise<void> => {
   }
 };
 
+// ─── Main deployment flow ─────────────────────────────────────────────────────
+
 async function processRecord(record: SQSRecord): Promise<void> {
   const job: DeployJob = JSON.parse(record.body);
   const { deploymentId } = job;
+
+  const awsAccountId = job.awsRoleArn.split(":")[4];
+  const region = (job.config.aws_region as string) ?? "us-east-1";
+
+  let credentials: Credentials | null = null;
+  const deployedModules: string[] = [];
 
   await updateDeployment(deploymentId, { status: "running" });
   await appendLog(deploymentId, "info", `[InfraReady] Starting deployment ${deploymentId}`);
 
   try {
-    // Step 1: Assume customer's IAM role
+    // ── Step 1: Assume customer IAM role ────────────────────────────────────
     await appendLog(deploymentId, "info", `[AWS] Assuming role: ${job.awsRoleArn}`);
 
     const assumed = await sts.send(new AssumeRoleCommand({
-      RoleArn: job.awsRoleArn,
+      RoleArn:         job.awsRoleArn,
       RoleSessionName: `infraready-deploy-${deploymentId}`,
-      ExternalId: job.awsExternalId,
-      DurationSeconds: 3600, // 1 hour
+      ExternalId:      job.awsExternalId,
+      DurationSeconds: 3600,
     }));
 
-    const credentials = {
-      accessKeyId: assumed.Credentials!.AccessKeyId!,
+    credentials = {
+      accessKeyId:     assumed.Credentials!.AccessKeyId!,
       secretAccessKey: assumed.Credentials!.SecretAccessKey!,
-      sessionToken: assumed.Credentials!.SessionToken!,
+      sessionToken:    assumed.Credentials!.SessionToken!,
     };
 
-    await appendLog(deploymentId, "success", `[AWS] Role assumed successfully`);
+    await appendLog(deploymentId, "success", "[AWS] Role assumed successfully");
 
-    // Step 2: Security scan — generate HCL for all modules and scan before touching AWS
+    // ── Step 2: Security scan ────────────────────────────────────────────────
     await appendLog(deploymentId, "info", "\n[Security] Running compliance scan (SOC2, HIPAA, CIS)...");
 
-    const moduleOrder = ["vpc", "rds", "ecs", "storage", "security", "waf", "kms", "backup"];
-    const orderedModules = moduleOrder.filter((m) => job.modules.includes(m));
+    const MODULE_ORDER = ["vpc", "rds", "ecs", "storage", "security", "waf", "kms", "backup"];
+    const orderedModules = MODULE_ORDER.filter((m) => job.modules.includes(m));
 
     for (const moduleName of orderedModules) {
       const generatedHcl = generateConfig({
@@ -78,7 +166,7 @@ async function processRecord(record: SQSRecord): Promise<void> {
         engine:      (job.config.engine as IaCEngine) ?? "opentofu",
         projectName: job.config.project_name as string,
         environment: (job.config.environment as string) ?? "production",
-        region:      (job.config.aws_region as string) ?? "us-east-1",
+        region,
         roleArn:     job.awsRoleArn,
         externalId:  job.awsExternalId,
         variables:   job.config,
@@ -92,12 +180,11 @@ async function processRecord(record: SQSRecord): Promise<void> {
         moduleType:      moduleName,
       });
 
-      await appendLog(deploymentId, scanResult.passed ? "success" : "error",
-        formatScanReport(scanResult));
+      await appendLog(deploymentId, scanResult.passed ? "success" : "error", formatScanReport(scanResult));
 
       if (!scanResult.passed) {
         throw new Error(
-          `Security scan BLOCKED deployment of module "${moduleName}". ` +
+          `Security scan BLOCKED module "${moduleName}" — ` +
           `${scanResult.summary.critical} critical, ${scanResult.summary.high} high severity findings. ` +
           `Fix the issues above and redeploy.`
         );
@@ -106,6 +193,7 @@ async function processRecord(record: SQSRecord): Promise<void> {
 
     await appendLog(deploymentId, "success", "[Security] All modules passed compliance scan.\n");
 
+    // ── Step 3: Deploy each module with retry ────────────────────────────────
     const outputs: Record<string, Record<string, unknown>> = {};
 
     for (const moduleName of orderedModules) {
@@ -114,50 +202,41 @@ async function processRecord(record: SQSRecord): Promise<void> {
 
       const moduleConfig = buildModuleConfig(moduleName, job.config, outputs);
 
-      const moduleOutputs = await execOpenTofu({
-        module: moduleName,
-        config: moduleConfig,
+      const moduleOutputs = await deployModuleWithRetry({
+        moduleName,
+        moduleConfig,
         credentials,
         deploymentId,
         projectId: job.projectId,
-        region: (job.config.aws_region as string) ?? "us-east-1",
-        onLog: (level, line) => appendLog(deploymentId, level, line),
+        region,
+        awsAccountId,
       });
 
+      deployedModules.push(moduleName);
       outputs[moduleName] = moduleOutputs;
       await appendLog(deploymentId, "success", `[OpenTofu] Module ${moduleName} deployed successfully`);
     }
 
-    // Step 3: Save outputs and mark complete
+    // ── Step 4: Save outputs ─────────────────────────────────────────────────
     await appendLog(deploymentId, "info", "\n[InfraReady] Saving outputs...");
 
     const flatOutputs = formatOutputs(outputs);
 
-    // Step 4: Generate GitHub Actions workflow if ECS was deployed
-    // The workflow YAML is stored in outputs so the UI can show it to the customer.
-    const awsAccountId = job.awsRoleArn.split(":")[4]; // arn:aws:iam::<account>:role/...
-    const awsRegion    = (job.config.aws_region as string) ?? "us-east-1";
-    const branch       = job.config.github_branch as string | undefined
-                      ?? job.githubBranch
-                      ?? "main";
-
-    const workflowCfg = workflowConfigFromOutputs(flatOutputs, awsAccountId, awsRegion, branch);
+    // Generate GitHub Actions workflow if ECS was deployed
+    const branch = (job.config.github_branch as string | undefined) ?? job.githubBranch ?? "main";
+    const workflowCfg = workflowConfigFromOutputs(flatOutputs, awsAccountId, region, branch);
 
     if (workflowCfg) {
-      const workflowYaml = generateGitHubWorkflow(workflowCfg);
-      flatOutputs.github_workflow_yaml = workflowYaml;
-
+      flatOutputs.github_workflow_yaml = generateGitHubWorkflow(workflowCfg);
       await appendLog(
-        deploymentId,
-        "success",
-        "[InfraReady] GitHub Actions deploy workflow generated. " +
-        "Add it to your repo at .github/workflows/deploy.yml to enable auto-deploy on push."
+        deploymentId, "success",
+        "[InfraReady] GitHub Actions deploy workflow generated — add to .github/workflows/deploy.yml"
       );
     }
 
     await updateDeployment(deploymentId, {
-      status: "success",
-      outputs: flatOutputs,
+      status:       "success",
+      outputs:      flatOutputs,
       completed_at: new Date().toISOString(),
       current_module: null,
     });
@@ -167,18 +246,48 @@ async function processRecord(record: SQSRecord): Promise<void> {
       .update({ status: "success", last_deployed_at: new Date().toISOString() })
       .eq("id", job.projectId);
 
-    await appendLog(deploymentId, "success", `\n[InfraReady] Deployment complete! Your infrastructure is live.`);
+    await appendLog(deploymentId, "success", "\n[InfraReady] Deployment complete! Your infrastructure is live.");
 
   } catch (err: unknown) {
     const error = err as Error;
     console.error(`Deployment ${deploymentId} failed:`, error);
 
-    await appendLog(deploymentId, "error", `\n[InfraReady] Deployment failed: ${error.message}`);
-    await appendLog(deploymentId, "error", "[InfraReady] Resources created before failure have been preserved. Review above for details.");
+    const userFriendlyError = friendlyError(error.message);
+    await appendLog(deploymentId, "error", `\n[InfraReady] Deployment failed: ${userFriendlyError}`);
+
+    // Auto-rollback: destroy all successfully deployed modules in reverse order
+    if (deployedModules.length > 0 && credentials) {
+      await appendLog(deploymentId, "warn", `\n[InfraReady] Rolling back ${deployedModules.length} deployed module(s)...`);
+
+      for (const moduleName of [...deployedModules].reverse()) {
+        try {
+          await appendLog(deploymentId, "warn", `[Rollback] Destroying ${moduleName}...`);
+          const moduleConfig = buildModuleConfig(moduleName, job.config, {});
+          await destroyOpenTofu({
+            module: moduleName,
+            config: moduleConfig,
+            credentials,
+            deploymentId,
+            projectId: job.projectId,
+            region,
+            awsAccountId,
+            onLog: (level, line) => appendLog(deploymentId, level, line),
+          });
+          await appendLog(deploymentId, "warn", `[Rollback] ${moduleName} destroyed`);
+        } catch (destroyErr) {
+          await appendLog(deploymentId, "error",
+            `[Rollback] Failed to destroy ${moduleName}: ${(destroyErr as Error).message}. ` +
+            `Check your AWS console for leftover resources.`
+          );
+        }
+      }
+
+      await appendLog(deploymentId, "warn", "[InfraReady] Rollback complete. AWS account has been cleaned up.");
+    }
 
     await updateDeployment(deploymentId, {
-      status: "failed",
-      error: error.message,
+      status:       "failed",
+      error:        userFriendlyError,
       completed_at: new Date().toISOString(),
       current_module: null,
     });
@@ -189,6 +298,62 @@ async function processRecord(record: SQSRecord): Promise<void> {
       .eq("id", job.projectId);
   }
 }
+
+// ─── Deploy module with retry ─────────────────────────────────────────────────
+
+async function deployModuleWithRetry(params: {
+  moduleName:   string;
+  moduleConfig: Record<string, unknown>;
+  credentials:  Credentials;
+  deploymentId: string;
+  projectId:    string;
+  region:       string;
+  awsAccountId: string;
+}): Promise<Record<string, unknown>> {
+  const { moduleName, moduleConfig, credentials, deploymentId, projectId, region, awsAccountId } = params;
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      return await execOpenTofu({
+        module:       moduleName,
+        config:       moduleConfig,
+        credentials,
+        deploymentId,
+        projectId,
+        region,
+        awsAccountId,
+        onLog: (level, line) => appendLog(deploymentId, level, line),
+      });
+    } catch (err) {
+      lastError = err as Error;
+      const errorClass = classifyError(lastError);
+
+      if (errorClass === "fatal") {
+        // Don't retry auth/permission errors — they won't self-heal
+        await appendLog(deploymentId, "error",
+          `[InfraReady] Fatal error on ${moduleName} — not retrying: ${friendlyError(lastError.message)}`
+        );
+        throw lastError;
+      }
+
+      if (attempt < MAX_ATTEMPTS) {
+        const delayMs = RETRY_DELAYS_MS[attempt - 1];
+        await appendLog(deploymentId, "warn",
+          `[InfraReady] ${moduleName} failed (attempt ${attempt}/${MAX_ATTEMPTS}). ` +
+          `Retrying in ${delayMs / 1000}s... — ${lastError.message}`
+        );
+        await sleep(delayMs);
+        await appendLog(deploymentId, "info", `[InfraReady] Retrying ${moduleName} (attempt ${attempt + 1}/${MAX_ATTEMPTS})...`);
+      }
+    }
+  }
+
+  throw lastError ?? new Error(`${moduleName} failed after ${MAX_ATTEMPTS} attempts`);
+}
+
+// ─── Module config builder ────────────────────────────────────────────────────
 
 function buildModuleConfig(
   module: string,
@@ -214,44 +379,44 @@ function buildModuleConfig(
     case "rds":
       return {
         ...base,
-        vpc_id:               previousOutputs.vpc?.vpc_id,
-        private_subnet_ids:   previousOutputs.vpc?.private_subnet_ids,
+        vpc_id:                previousOutputs.vpc?.vpc_id,
+        private_subnet_ids:    previousOutputs.vpc?.private_subnet_ids,
         app_security_group_id: previousOutputs.ecs?.ecs_task_security_group_id ?? "",
-        engine:               config.db_engine ?? "postgres",
-        instance_class:       config.db_instance ?? "db.t3.micro",
-        multi_az:             config.db_multi_az ?? false,
-        deletion_protection:  config.environment === "production",
+        engine:                config.db_engine ?? "postgres",
+        instance_class:        config.db_instance ?? "db.t3.micro",
+        multi_az:              config.db_multi_az ?? false,
+        deletion_protection:   config.environment === "production",
       };
 
     case "ecs":
       return {
         ...base,
-        vpc_id:             previousOutputs.vpc?.vpc_id,
-        public_subnet_ids:  previousOutputs.vpc?.public_subnet_ids,
-        private_subnet_ids: previousOutputs.vpc?.private_subnet_ids,
-        domain_name:        config.domain_name ?? "",
-        container_port:     config.container_port ?? 3000,
-        container_cpu:      config.container_cpu ?? 256,
+        vpc_id:              previousOutputs.vpc?.vpc_id,
+        public_subnet_ids:   previousOutputs.vpc?.public_subnet_ids,
+        private_subnet_ids:  previousOutputs.vpc?.private_subnet_ids,
+        domain_name:         config.domain_name ?? "",
+        container_port:      config.container_port ?? 3000,
+        container_cpu:       config.container_cpu ?? 256,
         container_memory_mb: config.container_memory ?? 512,
-        db_secret_arn:      previousOutputs.rds?.db_secret_arn ?? "",
+        db_secret_arn:       previousOutputs.rds?.db_secret_arn ?? "",
       };
 
     case "storage":
       return {
         ...base,
-        cdn_domain:           config.cdn_domain ?? "",
+        cdn_domain:            config.cdn_domain ?? "",
         enable_access_logging: true,
       };
 
     case "security":
       return {
         ...base,
-        alert_email:                config.alert_email,
+        alert_email:                 config.alert_email,
         billing_alarm_threshold_usd: config.billing_threshold ?? 100,
-        enable_guardduty:           true,
-        enable_security_hub:        true,
-        enable_config:              true,
-        log_retention_days:         365,
+        enable_guardduty:            true,
+        enable_security_hub:         true,
+        enable_config:               true,
+        log_retention_days:          365,
       };
 
     default:
@@ -259,18 +424,24 @@ function buildModuleConfig(
   }
 }
 
+// ─── Output formatter ─────────────────────────────────────────────────────────
+
 function formatOutputs(
   moduleOutputs: Record<string, Record<string, unknown>>
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
 
   if (moduleOutputs.vpc) {
-    out.vpc_id = moduleOutputs.vpc.vpc_id;
+    out.vpc_id             = moduleOutputs.vpc.vpc_id;
+    out.public_subnet_ids  = moduleOutputs.vpc.public_subnet_ids;
+    out.private_subnet_ids = moduleOutputs.vpc.private_subnet_ids;
   }
 
   if (moduleOutputs.rds) {
-    out.db_secret_arn  = moduleOutputs.rds.db_secret_arn;
-    out.db_endpoint    = moduleOutputs.rds.db_endpoint;
+    out.db_secret_arn = moduleOutputs.rds.db_secret_arn;
+    out.db_endpoint   = moduleOutputs.rds.db_endpoint;
+    out.db_port       = moduleOutputs.rds.db_port ?? 5432;
+    out.db_name       = moduleOutputs.rds.db_name;
   }
 
   if (moduleOutputs.ecs) {
@@ -279,19 +450,24 @@ function formatOutputs(
     out.cluster_name = moduleOutputs.ecs.ecs_cluster_name;
     out.service_name = moduleOutputs.ecs.ecs_service_name;
     out.log_group    = moduleOutputs.ecs.log_group_name;
+    out.task_role_arn       = moduleOutputs.ecs.task_role_arn;
+    out.execution_role_arn  = moduleOutputs.ecs.execution_role_arn;
   }
 
   if (moduleOutputs.storage) {
     out.cdn_url     = moduleOutputs.storage.cdn_url;
     out.bucket_name = moduleOutputs.storage.bucket_name;
+    out.bucket_arn  = moduleOutputs.storage.bucket_arn;
   }
 
   if (moduleOutputs.security) {
-    out.alerts_topic = moduleOutputs.security.alerts_topic_arn;
+    out.alerts_topic_arn = moduleOutputs.security.alerts_topic_arn;
   }
 
   return out;
 }
+
+// ─── Supabase helpers ─────────────────────────────────────────────────────────
 
 async function updateDeployment(deploymentId: string, updates: Record<string, unknown>) {
   await supabase
@@ -302,10 +478,8 @@ async function updateDeployment(deploymentId: string, updates: Record<string, un
 
 async function appendLog(deploymentId: string, level: string, message: string) {
   const logEntry = { ts: new Date().toISOString(), level, msg: message };
-
-  // Supabase doesn't support array append natively, so we use a raw RPC
   await supabase.rpc("append_deployment_log", {
     p_deployment_id: deploymentId,
-    p_log_entry: logEntry,
+    p_log_entry:     logEntry,
   });
 }

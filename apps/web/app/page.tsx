@@ -1,14 +1,9 @@
 import Link from "next/link";
 import { createServerClient } from "@/lib/supabase/server";
 import { Nav } from "@/components/landing/Nav";
-import { TerminalMockup } from "@/components/landing/TerminalMockup";
-import { PricingSection } from "@/components/landing/PricingSection";
-import { HeroAnimations } from "@/components/landing/HeroAnimations";
-import { FeaturesGrid } from "@/components/landing/FeaturesGrid";
-import { HowItWorks } from "@/components/landing/HowItWorks";
-import { StatsBar } from "@/components/landing/StatsBar";
+import { WaitlistForm } from "@/components/landing/WaitlistForm";
 
-// ─── Auth check (server) ────────────────────────────────────────────────────
+// ─── Auth check (server) ─────────────────────────────────────────────────────
 async function getUser() {
   try {
     const supabase = await createServerClient();
@@ -21,267 +16,273 @@ async function getUser() {
   }
 }
 
-// ─── Page ───────────────────────────────────────────────────────────────────
+// ─── Page ────────────────────────────────────────────────────────────────────
 export default async function LandingPage() {
   const user = await getUser();
   const isAuthenticated = !!user;
 
   return (
-    <div className="min-h-screen bg-[#04091A] text-[#F0F9FF] overflow-x-hidden">
-      {/* ── Nav ── */}
+    <div className="min-h-screen bg-[#0a0a0a] text-white overflow-x-hidden">
       <Nav isAuthenticated={isAuthenticated} />
 
       {/* ── Hero ── */}
-      <section className="relative min-h-screen flex flex-col items-center justify-center px-6 pt-24 pb-32">
-        {/* Dot grid */}
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            backgroundImage: "radial-gradient(rgba(148,163,184,0.07) 1px, transparent 1px)",
-            backgroundSize: "32px 32px",
-          }}
-          aria-hidden
-        />
-        {/* Top radial sky glow */}
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            background:
-              "radial-gradient(ellipse 90% 55% at 50% 0%, rgba(14,165,233,0.12) 0%, transparent 70%)",
-          }}
-          aria-hidden
-        />
-        {/* Bottom page fade */}
-        <div
-          className="absolute bottom-0 left-0 right-0 h-64 pointer-events-none"
-          style={{ background: "linear-gradient(to bottom, transparent, #04091A)" }}
-          aria-hidden
-        />
+      <section className="pt-40 pb-24 px-6">
+        <div className="max-w-[1100px] mx-auto">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-[#71717a] mb-6">
+            Infrastructure for builders
+          </p>
+          <h1
+            className="font-extrabold text-white leading-[1.02] mb-6"
+            style={{ fontSize: "clamp(40px, 6vw, 72px)", letterSpacing: "-0.04em" }}
+          >
+            Deploy production AWS<br className="hidden sm:block" /> infrastructure in minutes.
+          </h1>
+          <p className="text-[18px] text-[#a1a1aa] max-w-[560px] leading-relaxed mb-8">
+            Connect your AWS account. Pick your stack. We handle the rest. You own every line of Terraform. Always.
+          </p>
 
-        <div className="relative z-10 max-w-6xl mx-auto w-full">
-          <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
-            {/* Left: Copy */}
-            <div className="text-center lg:text-left">
-              <HeroAnimations isAuthenticated={isAuthenticated} />
-            </div>
-
-            {/* Right: Terminal (desktop) */}
-            <div className="relative hidden lg:block">
-              <TerminalMockup />
-            </div>
+          <div className="flex flex-col sm:flex-row items-start gap-3 mb-6">
+            <a
+              href="#waitlist"
+              className="px-6 py-3 rounded-md font-semibold text-white text-sm bg-[#f97316] hover:bg-orange-400 transition-colors duration-200"
+            >
+              Join the waitlist
+            </a>
+            <a
+              href="#how-it-works"
+              className="px-6 py-3 rounded-md font-semibold text-sm text-white border border-[#27272a] hover:bg-white/5 transition-colors duration-200"
+            >
+              See how it works
+            </a>
           </div>
 
-          {/* Mobile terminal */}
-          <div className="mt-12 lg:hidden">
-            <TerminalMockup />
+          <p className="text-[12px] text-[#52525b]">
+            No credit card. No vendor lock-in. Your AWS, your code.
+          </p>
+        </div>
+      </section>
+
+      {/* ── Social Proof Bar ── */}
+      <section className="border-y border-[#27272a] bg-[#111111]">
+        <div className="max-w-[1100px] mx-auto px-6 h-12 flex items-center gap-4 overflow-hidden">
+          <span className="text-[#52525b] text-xs whitespace-nowrap shrink-0">
+            Works with the tools you already build with:
+          </span>
+          <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
+            {["AWS", "GitHub", "OpenTofu", "Claude", "Cursor", "Vercel", "Supabase"].map((tool) => (
+              <span
+                key={tool}
+                className="px-2.5 py-1 rounded text-xs text-[#a1a1aa] bg-[#0a0a0a] border border-[#27272a] whitespace-nowrap"
+              >
+                {tool}
+              </span>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* ── Stats Bar ── */}
-      <StatsBar />
+      {/* ── Problem / Solution ── */}
+      <section className="py-24 px-6">
+        <div className="max-w-[1100px] mx-auto">
+          <h2
+            className="font-bold text-white mb-12"
+            style={{ fontSize: "clamp(28px, 3.5vw, 44px)", letterSpacing: "-0.03em" }}
+          >
+            You ship fast. Deployment stops you cold.
+          </h2>
 
-      {/* ── Logo bar ── */}
-      <LogoBar />
+          <div className="grid md:grid-cols-2 gap-6">
+            {/* Old way */}
+            <div className="p-6 rounded-lg border border-[#27272a] bg-[#111111]">
+              <p className="text-[#71717a] text-xs font-semibold uppercase tracking-widest mb-5">
+                The old way
+              </p>
+              <ul className="space-y-3 font-mono text-sm">
+                {[
+                  "Read 400 pages of AWS docs",
+                  "Spend 3 weeks configuring VPCs",
+                  "Hire a DevOps engineer ($180K/yr)",
+                  "Watch $40K in AWS credits expire",
+                  "Pay Heroku $400/mo in desperation",
+                ].map((item) => (
+                  <li key={item} className="flex items-start gap-2.5">
+                    <span className="text-red-400 shrink-0 mt-0.5">✗</span>
+                    <span className="text-[#a1a1aa]">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* New way */}
+            <div className="p-6 rounded-lg border border-[#f97316]/30 bg-[#111111]">
+              <p className="text-[#f97316] text-xs font-semibold uppercase tracking-widest mb-5">
+                With InfraReady
+              </p>
+              <ul className="space-y-3 font-mono text-sm">
+                {[
+                  "Connect your AWS account (2 min)",
+                  "Pick your modules",
+                  "Click deploy",
+                  "Use your AWS credits",
+                  "Own your Terraform forever",
+                ].map((item) => (
+                  <li key={item} className="flex items-start gap-2.5">
+                    <span className="text-[#f97316] shrink-0 mt-0.5">✓</span>
+                    <span className="text-[#a1a1aa]">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* ── How It Works ── */}
-      <HowItWorks />
-
-      {/* ── Features ── */}
-      <FeaturesGrid />
-
-      {/* ── Pricing ── */}
-      <PricingSection />
-
-      {/* ── CTA Banner ── */}
-      <CTABanner />
-
-      {/* ── Footer ── */}
-      <Footer />
-    </div>
-  );
-}
-
-// ─── Logo Bar ────────────────────────────────────────────────────────────────
-function LogoBar() {
-  const logos = [
-    "Y Combinator",
-    "AWS Activate",
-    "GitHub",
-    "Vercel",
-    "Stripe",
-    "Supabase",
-    "Y Combinator",
-    "AWS Activate",
-    "GitHub",
-    "Vercel",
-    "Stripe",
-    "Supabase",
-  ];
-
-  return (
-    <section className="py-16 border-y border-white/[0.05] overflow-hidden relative mt-8">
-      <div
-        className="absolute inset-y-0 left-0 w-24 pointer-events-none z-10"
-        style={{ background: "linear-gradient(to right, #04091A, transparent)" }}
-        aria-hidden
-      />
-      <div
-        className="absolute inset-y-0 right-0 w-24 pointer-events-none z-10"
-        style={{ background: "linear-gradient(to left, #04091A, transparent)" }}
-        aria-hidden
-      />
-      <p className="text-center text-xs font-semibold uppercase tracking-widest text-slate-600 mb-8">
-        Trusted by founders from
-      </p>
-      <div className="flex overflow-hidden">
-        <div className="flex gap-16 animate-marquee whitespace-nowrap">
-          {logos.map((logo, i) => (
-            <span
-              key={i}
-              className="text-slate-500 font-semibold text-sm tracking-wide hover:text-slate-300 transition-colors duration-300 cursor-default"
-            >
-              {logo}
-            </span>
-          ))}
-        </div>
-        <div className="flex gap-16 animate-marquee2 whitespace-nowrap ml-16" aria-hidden>
-          {logos.map((logo, i) => (
-            <span
-              key={i}
-              className="text-slate-500 font-semibold text-sm tracking-wide cursor-default"
-            >
-              {logo}
-            </span>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── CTA Banner ──────────────────────────────────────────────────────────────
-function CTABanner() {
-  return (
-    <section className="relative py-32 px-6 overflow-hidden">
-      {/* Background glow */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background:
-            "radial-gradient(ellipse 80% 60% at 50% 50%, rgba(14,165,233,0.09) 0%, rgba(99,102,241,0.06) 50%, transparent 70%)",
-        }}
-        aria-hidden
-      />
-      {/* Dot grid overlay */}
-      <div
-        className="absolute inset-0 pointer-events-none opacity-40"
-        style={{
-          backgroundImage: "radial-gradient(rgba(148,163,184,0.06) 1px, transparent 1px)",
-          backgroundSize: "32px 32px",
-        }}
-        aria-hidden
-      />
-      <div className="relative z-10 max-w-3xl mx-auto text-center">
-        <span className="text-xs font-semibold uppercase tracking-widest text-sky-400 mb-4 block">
-          Ready to ship?
-        </span>
-        <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight mb-6 leading-tight">
-          <span className="text-[#F0F9FF]">Stop fighting</span>{" "}
-          <span
-            className="bg-clip-text text-transparent"
-            style={{
-              backgroundImage: "linear-gradient(135deg, #38BDF8 0%, #67E8F9 40%, #A78BFA 100%)",
-            }}
+      <section id="how-it-works" className="py-24 px-6 border-t border-[#27272a]">
+        <div className="max-w-[1100px] mx-auto">
+          <h2
+            className="font-bold text-white mb-16"
+            style={{ fontSize: "clamp(28px, 3.5vw, 44px)", letterSpacing: "-0.03em" }}
           >
-            DevOps
-          </span>
-        </h2>
-        <p className="text-lg text-slate-400 mb-10 max-w-xl mx-auto leading-relaxed">
-          Your AWS Activate credits are waiting. Deploy your first production environment in 20
-          minutes — no DevOps hire required.
-        </p>
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-          <Link
-            href="/login"
-            className="w-full sm:w-auto px-8 py-4 rounded-xl font-semibold text-white text-base bg-sky-500 hover:bg-sky-400 transition-all duration-200 shadow-lg shadow-sky-500/30 hover:shadow-sky-400/40 hover:scale-[1.02] active:scale-[0.98] animate-glow-pulse"
-          >
-            Get Started Free →
-          </Link>
-          <Link
-            href="mailto:kay@infraready.io"
-            className="w-full sm:w-auto px-8 py-4 rounded-xl font-semibold text-slate-300 text-base border border-white/10 hover:border-white/20 hover:text-white transition-all duration-200 hover:bg-white/[0.03]"
-          >
-            Talk to a founder
-          </Link>
-        </div>
-        <p className="text-sm text-slate-600 mt-6">
-          No credit card required · Connects to your own AWS account · Cancel anytime
-        </p>
-      </div>
-    </section>
-  );
-}
+            How it works
+          </h2>
 
-// ─── Footer ──────────────────────────────────────────────────────────────────
-function Footer() {
-  return (
-    <footer className="border-t border-white/[0.05] py-12 px-6">
-      <div className="max-w-6xl mx-auto">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-8">
-          {/* Brand */}
-          <div>
-            <div className="flex items-center gap-2.5 mb-3">
-              <div className="w-6 h-6 rounded-md bg-gradient-to-br from-sky-400 to-violet-500 flex items-center justify-center">
-                <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-                  <path
-                    d="M7 1L12 4V10L7 13L2 10V4L7 1Z"
-                    stroke="white"
-                    strokeWidth="1.5"
-                    strokeLinejoin="round"
-                  />
-                </svg>
+          <div className="grid md:grid-cols-3 gap-10 mb-16">
+            {[
+              {
+                num: "1",
+                title: "Connect",
+                desc: "Link your AWS account with one CloudFormation click. We get a scoped IAM role. You can revoke it any time.",
+              },
+              {
+                num: "2",
+                title: "Configure",
+                desc: "Pick your modules. Set your options. We generate clean OpenTofu — no proprietary syntax.",
+              },
+              {
+                num: "3",
+                title: "Deploy",
+                desc: "Watch your infrastructure deploy in real time. Every resource tracked. Every failure auto-retried and self-healed.",
+              },
+            ].map((step) => (
+              <div key={step.num}>
+                <div
+                  className="font-thin text-[#f97316] leading-none mb-4 select-none"
+                  style={{ fontSize: "64px", fontWeight: 200 }}
+                  aria-hidden
+                >
+                  {step.num}
+                </div>
+                <h3 className="text-white font-semibold text-lg mb-2">{step.title}</h3>
+                <p className="text-[#a1a1aa] text-sm leading-relaxed">{step.desc}</p>
               </div>
-              <span className="font-bold text-[#F0F9FF] text-sm">InfraReady</span>
-            </div>
-            <p className="text-xs text-slate-600 max-w-[200px] leading-relaxed">
-              Made for vibe coders. Built with OpenTofu.
-            </p>
+            ))}
           </div>
 
-          {/* Links */}
-          <nav className="flex flex-wrap gap-x-8 gap-y-3">
-            {[
-              { label: "Features", href: "#features" },
-              { label: "Pricing", href: "#pricing" },
-              { label: "Docs", href: "https://docs.infraready.io" },
-              { label: "GitHub", href: "https://github.com/infraready099" },
-              { label: "Twitter", href: "https://twitter.com/infraready" },
-              { label: "Privacy", href: "/privacy" },
-            ].map((link) => (
-              <Link
-                key={link.label}
-                href={link.href}
-                className="text-sm text-slate-500 hover:text-slate-300 transition-colors duration-200"
-              >
-                {link.label}
-              </Link>
-            ))}
-          </nav>
+          {/* Terminal mockup */}
+          <div className="rounded-lg border border-[#27272a] bg-black overflow-hidden font-mono text-xs max-w-2xl">
+            <div className="flex items-center gap-1.5 px-4 py-3 border-b border-[#27272a] bg-[#111111]">
+              <div className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]" />
+              <div className="w-2.5 h-2.5 rounded-full bg-[#febc2e]" />
+              <div className="w-2.5 h-2.5 rounded-full bg-[#28c840]" />
+              <span className="ml-3 text-[#52525b]">deploy.log</span>
+            </div>
+            <div className="p-5 space-y-1.5">
+              <p>
+                <span className="text-[#52525b]">$</span>{" "}
+                <span className="text-[#a1a1aa]">tofu apply --auto-approve</span>
+              </p>
+              <p className="text-[#a1a1aa]">
+                <span className="text-[#52525b]">Plan:</span> 14 to add, 0 to change, 0 to destroy.
+              </p>
+              <p className="text-[#a1a1aa]">
+                aws_vpc.this: Creating...
+              </p>
+              <p className="text-[#a1a1aa]">
+                aws_vpc.this: Creation complete after 2s{" "}
+                <span className="text-[#28c840]">[id=vpc-0a3f9e12d4b87c651]</span>
+              </p>
+              <p className="text-[#a1a1aa]">
+                aws_subnet.public[0]: Creating...
+              </p>
+              <p className="text-[#a1a1aa]">
+                aws_subnet.public[0]: Creation complete after 1s{" "}
+                <span className="text-[#28c840]">[id=subnet-04d1a2b3c5e6f7890]</span>
+              </p>
+              <p className="text-[#a1a1aa]">
+                aws_subnet.public[1]: Creating...
+              </p>
+              <p className="text-[#a1a1aa]">
+                aws_subnet.public[1]: Creation complete after 1s{" "}
+                <span className="text-[#28c840]">[id=subnet-0b2c3d4e5f6a7b890]</span>
+              </p>
+              <p className="text-[#a1a1aa]">
+                aws_db_subnet_group.this: Creating...
+              </p>
+              <p className="text-[#a1a1aa]">
+                aws_db_subnet_group.this: Creation complete after 1s
+              </p>
+              <p className="text-[#a1a1aa]">
+                aws_rds_cluster.this: Creating...
+              </p>
+              <p className="text-[#a1a1aa]">
+                aws_rds_cluster.this: Creation complete after 8m32s{" "}
+                <span className="text-[#28c840]">[id=infraready-prod]</span>
+              </p>
+              <p className="text-[#a1a1aa]">
+                aws_ecs_cluster.this: Creating...
+              </p>
+              <p className="text-[#a1a1aa]">
+                aws_ecs_cluster.this: Creation complete after 4s{" "}
+                <span className="text-[#28c840]">[id=arn:aws:ecs:us-east-1:...]</span>
+              </p>
+              <p className="text-[#a1a1aa]">
+                aws_ecs_service.app: Creating...
+              </p>
+              <p className="text-[#a1a1aa]">
+                aws_ecs_service.app: Creation complete after 1m14s
+              </p>
+              <p className="mt-2 font-semibold text-[#28c840]">
+                Apply complete! Resources: 14 added, 0 changed, 0 destroyed.
+              </p>
+              <p className="text-[#28c840]">
+                Infrastructure ready in 18m 42s ✓
+              </p>
+            </div>
+          </div>
         </div>
+      </section>
 
-        <div className="mt-8 pt-8 border-t border-white/[0.04] flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-xs text-slate-700">
-            &copy; 2025 InfraReady, Inc. All rights reserved.
-          </p>
-          <p className="text-xs text-slate-700">
-            Powered by{" "}
-            <span className="text-sky-600 font-medium">OpenTofu</span>
-            {" · "}
-            <span className="text-sky-600 font-medium">AWS</span>
+      {/* ── Waitlist ── */}
+      <section id="waitlist" className="py-24 px-6 border-t border-[#27272a]">
+        <div className="max-w-[1100px] mx-auto">
+          <div className="max-w-md">
+            <h2
+              className="font-bold text-white mb-3"
+              style={{ fontSize: "clamp(28px, 3.5vw, 44px)", letterSpacing: "-0.03em" }}
+            >
+              Get early access
+            </h2>
+            <p className="text-[#a1a1aa] text-sm leading-relaxed mb-8">
+              We&apos;re talking to 10 founders this month. Join the waitlist for a free 30-minute infrastructure review.
+            </p>
+            <WaitlistForm />
+          </div>
+        </div>
+      </section>
+
+      {/* ── Footer ── */}
+      <footer className="border-t border-[#27272a] py-8 px-6">
+        <div className="max-w-[1100px] mx-auto">
+          <p className="text-[#52525b] text-xs">
+            &copy; 2025 InfraReady &middot;{" "}
+            <a href="mailto:hello@infraready.io" className="hover:text-[#a1a1aa] transition-colors">
+              hello@infraready.io
+            </a>{" "}
+            &middot; Built by a solo founder
           </p>
         </div>
-      </div>
-    </footer>
+      </footer>
+    </div>
   );
 }

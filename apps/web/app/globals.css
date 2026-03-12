@@ -5,10 +5,10 @@
 @layer base {
   :root {
     --radius: 0.5rem;
-    --bg-base: #04091A;
-    --brand: #0EA5E9;
-    --brand-light: #38BDF8;
-    --border-subtle: rgba(255,255,255,0.07);
+    --bg-base: #0a0a0a;
+    --brand: #f97316;
+    --brand-light: #fb923c;
+    --border-subtle: #27272a;
   }
 
   * {
@@ -16,8 +16,8 @@
   }
 
   body {
-    background-color: #04091A;
-    color: #e2e8f0;
+    background-color: #0a0a0a;
+    color: #ffffff;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
