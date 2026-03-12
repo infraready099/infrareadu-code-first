@@ -12,7 +12,7 @@
 
 import { SQSEvent, SQSRecord } from "aws-lambda";
 import { STSClient, AssumeRoleCommand } from "@aws-sdk/client-sts";
-import { execOpenTofu } from "./opentofu";
+import { execOpenTofu, destroyOpenTofu } from "./opentofu";
 import { createClient } from "@supabase/supabase-js";
 import { generateConfig, ModuleType, IaCEngine } from "./services/terraform-generator";
 import { scanHcl, formatScanReport, DEFAULT_FRAMEWORKS, DEFAULT_BLOCK_ON } from "./services/security-scan";
@@ -319,29 +319,23 @@ async function deployModuleWithRetry(params: {
 }): Promise<Record<string, unknown>> {
   const { moduleName, moduleConfig, credentials, deploymentId, projectId, region, awsAccountId } = params;
 
+  const tofuOpts = { module: moduleName, config: moduleConfig, credentials, deploymentId, projectId, region, awsAccountId,
+    onLog: (level: "info" | "success" | "error" | "warn", line: string) => appendLog(deploymentId, level, line) };
+
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      return await execOpenTofu({
-        module:       moduleName,
-        config:       moduleConfig,
-        credentials,
-        deploymentId,
-        projectId,
-        region,
-        awsAccountId,
-        onLog: (level, line) => appendLog(deploymentId, level, line),
-      });
+      return await execOpenTofu(tofuOpts);
     } catch (err) {
       lastError = err as Error;
       const errorClass = classifyError(lastError);
 
       if (errorClass === "fatal") {
-        // Don't retry auth/permission errors — they won't self-heal
         await appendLog(deploymentId, "error",
           `[InfraReady] Fatal error on ${moduleName} — not retrying: ${friendlyError(lastError.message)}`
         );
+        await cleanupModule(moduleName, tofuOpts, deploymentId);
         throw lastError;
       }
 
@@ -357,7 +351,24 @@ async function deployModuleWithRetry(params: {
     }
   }
 
+  // All retries exhausted — clean up this module's partial resources
+  await cleanupModule(moduleName, tofuOpts, deploymentId);
   throw lastError ?? new Error(`${moduleName} failed after ${MAX_ATTEMPTS} attempts`);
+}
+
+async function cleanupModule(
+  moduleName: string,
+  tofuOpts: Parameters<typeof destroyOpenTofu>[0],
+  deploymentId: string
+): Promise<void> {
+  try {
+    await appendLog(deploymentId, "warn", `[InfraReady] Cleaning up partial ${moduleName} resources...`);
+    await destroyOpenTofu(tofuOpts);
+    await appendLog(deploymentId, "info", `[InfraReady] ${moduleName} cleaned up — your AWS account is back to a clean state.`);
+  } catch {
+    // Destroy can fail if nothing was created (e.g. failed before any resource) — that's fine
+    await appendLog(deploymentId, "info", `[InfraReady] ${moduleName} cleanup complete.`);
+  }
 }
 
 // ─── Module config builder ────────────────────────────────────────────────────
