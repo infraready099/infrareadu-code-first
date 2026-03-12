@@ -139,6 +139,10 @@ Resources:
                   - iam:CreatePolicyVersion
                   - iam:DeletePolicyVersion
                   - iam:ListPolicyVersions
+                  # Required to delete an IAM role (AWS checks for instance profiles first)
+                  - iam:ListInstanceProfilesForRole
+                  # Required on first ALB deploy — ELB creates its service-linked role
+                  - iam:CreateServiceLinkedRole
                 Resource: "*"
 
               # ── CloudFormation ────────────────────────────────────────────────
