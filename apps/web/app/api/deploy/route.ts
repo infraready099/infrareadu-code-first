@@ -77,29 +77,20 @@ export async function POST(req: NextRequest) {
 
   const { projectId, modules, config } = parsed.data;
 
-  const hasServiceKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
-  console.log("[deploy] serviceKey present:", hasServiceKey, "projectId:", projectId, "userId:", userId);
-
   // Use admin client (service role) to fetch project — bypasses RLS.
   // We manually verify ownership below.
-  const { data: project, error: projectError } = await adminClient
+  const { data: project } = await adminClient
     .from("projects")
     .select("id, name, aws_role_arn, aws_external_id, aws_region, aws_account_id, repo_url, github_installation_id, user_id")
     .eq("id", projectId)
     .single();
 
-  console.log("[deploy] project found:", !!project, "dbError:", projectError?.code, projectError?.message);
-
   if (!project) {
-    return NextResponse.json({
-      error: `Project not found — id: ${projectId}, serviceKey: ${hasServiceKey}, dbErr: ${projectError?.message ?? "none"}`,
-    }, { status: 404 });
+    return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
   if (project.user_id !== userId) {
-    return NextResponse.json({
-      error: `Owner mismatch — project.user_id: ${project.user_id} vs userId: ${userId}`,
-    }, { status: 404 });
+    return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
   if (!project.aws_role_arn) {
