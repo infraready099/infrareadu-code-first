@@ -978,8 +978,28 @@ function NewProjectPageInner() {
       containerMemory: appDefaults.memory,
     }));
 
-    // Redirect to GitHub App installation — callback will return to wizard Step 2
-    window.location.href = `/api/github/connect?projectId=${project.id}`;
+    // Check client-side if user already has GitHub App installed on any project
+    const { data: existingInstall } = await supabase
+      .from("projects")
+      .select("github_installation_id")
+      .eq("user_id", user.id)
+      .not("github_installation_id", "is", null)
+      .limit(1)
+      .single();
+
+    if (existingInstall?.github_installation_id) {
+      // Reuse existing installation — skip GitHub entirely
+      await supabase
+        .from("projects")
+        .update({ github_installation_id: existingInstall.github_installation_id })
+        .eq("id", project.id);
+
+      setProjectId(project.id);
+      setStep(2);
+    } else {
+      // First time — send to GitHub App installation
+      window.location.href = `/api/github/connect?projectId=${project.id}`;
+    }
   }, [stepOneData, stepTwoData.externalId]);
 
   const meta = STEP_META[step - 1];
