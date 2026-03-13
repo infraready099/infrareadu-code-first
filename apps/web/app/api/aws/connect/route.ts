@@ -1,46 +1,58 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
 import { STSClient, AssumeRoleCommand, GetCallerIdentityCommand } from "@aws-sdk/client-sts";
 import { z } from "zod";
-import { randomUUID } from "crypto";
 
 const connectSchema = z.object({
   projectId: z.string().uuid(),
   roleArn: z.string().regex(/^arn:aws:iam::\d{12}:role\/.+$/, "Invalid IAM role ARN format"),
 });
 
-export async function POST(req: NextRequest) {
+// Service-role client bypasses RLS — we verify ownership manually.
+const adminClient = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+);
+
+async function resolveUserId(req: NextRequest): Promise<string | undefined> {
+  const authHeader = req.headers.get("authorization");
+  const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+
+  if (bearerToken) {
+    const { data: { user } } = await adminClient.auth.getUser(bearerToken);
+    if (user?.id) return user.id;
+  }
+
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (user?.id) return user.id;
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.user?.id;
+}
+
+export async function POST(req: NextRequest) {
+  const userId = await resolveUserId(req);
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json();
   const parsed = connectSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid role ARN format" }, { status: 400 });
-  }
+  if (!parsed.success) return NextResponse.json({ error: "Invalid role ARN format" }, { status: 400 });
 
   const { projectId, roleArn } = parsed.data;
 
-  // Verify project belongs to user
-  const { data: project } = await supabase
+  const { data: project } = await adminClient
     .from("projects")
-    .select("id, aws_external_id")
+    .select("id, aws_external_id, user_id")
     .eq("id", projectId)
-    .eq("user_id", user.id)
     .single();
 
-  if (!project) {
+  if (!project || project.user_id !== userId) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
   const externalId = project.aws_external_id;
-
-  // Try to assume the role to verify it's set up correctly
   const sts = new STSClient({ region: "us-east-1" });
 
   try {
@@ -48,7 +60,7 @@ export async function POST(req: NextRequest) {
       RoleArn: roleArn,
       RoleSessionName: `infraready-verify-${Date.now()}`,
       ExternalId: externalId,
-      DurationSeconds: 900, // 15 minutes — just for verification
+      DurationSeconds: 900,
     }));
 
     const tempSts = new STSClient({
@@ -62,8 +74,7 @@ export async function POST(req: NextRequest) {
 
     const identity = await tempSts.send(new GetCallerIdentityCommand({}));
 
-    // Save the verified role ARN
-    await supabase
+    await adminClient
       .from("projects")
       .update({
         aws_role_arn: roleArn,
@@ -93,23 +104,20 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// Generate ExternalId for a new project
 export async function GET(req: NextRequest) {
-  const supabase = await createServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const userId = await resolveUserId(req);
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const projectId = req.nextUrl.searchParams.get("projectId");
   if (!projectId) return NextResponse.json({ error: "projectId required" }, { status: 400 });
 
-  const { data: project } = await supabase
+  const { data: project } = await adminClient
     .from("projects")
-    .select("aws_external_id, aws_account_id")
+    .select("aws_external_id, aws_account_id, user_id")
     .eq("id", projectId)
-    .eq("user_id", user.id)
     .single();
 
-  if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!project || project.user_id !== userId) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   return NextResponse.json({
     externalId: project.aws_external_id,

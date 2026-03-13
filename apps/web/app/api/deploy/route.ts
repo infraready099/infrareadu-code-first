@@ -30,33 +30,41 @@ const deploySchema = z.object({
 
 const sqs = new SQSClient({ region: process.env.AWS_REGION ?? "us-east-1" });
 
+// Service-role client — bypasses RLS, used for server-side operations.
+// We validate the user's identity separately via their auth token.
+const adminClient = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+);
+
 export async function POST(req: NextRequest) {
-  // If the client sent an explicit Bearer token, use it to build an authenticated
-  // Supabase client — this bypasses cookie propagation issues entirely and ensures
-  // RLS policies run in the correct user context.
+  // Resolve the calling user's identity.
+  // Try Authorization: Bearer header first (sent explicitly by wizard),
+  // then fall back to cookie-based session.
   const authHeader = req.headers.get("authorization");
   const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
 
-  // Build a Supabase client that is authenticated as the calling user
-  const supabase = bearerToken
-    ? createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        { global: { headers: { Authorization: `Bearer ${bearerToken}` } } }
-      )
-    : await createServerClient();
+  let userId: string | undefined;
 
-  // Resolve userId
-  const { data: { user } } = await supabase.auth.getUser();
-  let userId: string | undefined = user?.id;
-  if (!userId && !bearerToken) {
-    // Cookie-based fallback: read JWT directly without server validation
-    const { data: { session } } = await supabase.auth.getSession();
-    userId = session?.user?.id;
+  if (bearerToken) {
+    // Validate token directly — no cookie dependency
+    const { data: { user } } = await adminClient.auth.getUser(bearerToken);
+    userId = user?.id;
   }
 
   if (!userId) {
-    console.error("[deploy] Unauthorized — no userId resolved. bearerToken present:", !!bearerToken);
+    // Cookie-based fallback
+    const supabase = await createServerClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      userId = user.id;
+    } else {
+      const { data: { session } } = await supabase.auth.getSession();
+      userId = session?.user?.id;
+    }
+  }
+
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -69,23 +77,19 @@ export async function POST(req: NextRequest) {
 
   const { projectId, modules, config } = parsed.data;
 
-  console.log("[deploy] userId:", userId, "projectId:", projectId, "bearerToken:", !!bearerToken);
-
-  // Verify project exists and belongs to user
-  const { data: project, error: projectError } = await supabase
+  // Use admin client (service role) to fetch project — bypasses RLS.
+  // We manually verify ownership below.
+  const { data: project } = await adminClient
     .from("projects")
     .select("id, name, aws_role_arn, aws_external_id, aws_region, aws_account_id, repo_url, github_installation_id, user_id")
     .eq("id", projectId)
     .single();
 
-  console.log("[deploy] project:", project?.id, "error:", projectError?.message);
-
   if (!project) {
-    return NextResponse.json({ error: `Project not found (id: ${projectId}, user: ${userId})` }, { status: 404 });
+    return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
   if (project.user_id !== userId) {
-    console.error("[deploy] user_id mismatch — project.user_id:", project.user_id, "userId:", userId);
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
@@ -94,7 +98,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Create deployment record
-  const { data: deployment, error: dbError } = await supabase
+  const { data: deployment, error: dbError } = await adminClient
     .from("deployments")
     .insert({
       project_id: projectId,
@@ -113,7 +117,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Persist region to the project row so the detail page can show it
-  await supabase
+  await adminClient
     .from("projects")
     .update({ aws_region: config.aws_region })
     .eq("id", projectId);
@@ -161,7 +165,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Update project status
-  await supabase
+  await adminClient
     .from("projects")
     .update({ status: "deploying" })
     .eq("id", projectId);
