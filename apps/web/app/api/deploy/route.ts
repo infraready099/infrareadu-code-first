@@ -56,6 +56,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (!userId) {
+    console.error("[deploy] Unauthorized — no userId resolved. bearerToken present:", !!bearerToken);
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -68,18 +69,23 @@ export async function POST(req: NextRequest) {
 
   const { projectId, modules, config } = parsed.data;
 
+  console.log("[deploy] userId:", userId, "projectId:", projectId, "bearerToken:", !!bearerToken);
+
   // Verify project exists and belongs to user
-  const { data: project } = await supabase
+  const { data: project, error: projectError } = await supabase
     .from("projects")
     .select("id, name, aws_role_arn, aws_external_id, aws_region, aws_account_id, repo_url, github_installation_id, user_id")
     .eq("id", projectId)
     .single();
 
+  console.log("[deploy] project:", project?.id, "error:", projectError?.message);
+
   if (!project) {
-    return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    return NextResponse.json({ error: `Project not found (id: ${projectId}, user: ${userId})` }, { status: 404 });
   }
 
   if (project.user_id !== userId) {
+    console.error("[deploy] user_id mismatch — project.user_id:", project.user_id, "userId:", userId);
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
