@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useCallback, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Github,
   ExternalLink,
@@ -921,7 +921,9 @@ const STEP_META = [
 ];
 
 export default function NewProjectPage() {
-  const [step, setStep]         = useState<Step>(1);
+  const searchParams = useSearchParams();
+
+  const [step, setStep]           = useState<Step>(1);
   const [projectId, setProjectId] = useState("");
 
   const [stepOneData, setStepOneData] = useState<StepOneData>({
@@ -938,6 +940,16 @@ export default function NewProjectPage() {
     containerPort: 3000, containerCpu: 256, containerMemory: 512,
     dbEngine: "postgres", dbInstance: "db.t3.micro", alertEmail: "",
   });
+
+  // Resume wizard after GitHub App install redirects back with ?projectId=&step=2
+  useEffect(() => {
+    const pid  = searchParams.get("projectId");
+    const step = searchParams.get("step");
+    if (pid && step === "2") {
+      setProjectId(pid);
+      setStep(2);
+    }
+  }, [searchParams]);
 
   const handleStepOneContinue = useCallback(async () => {
     const supabase = createClient();
@@ -966,8 +978,8 @@ export default function NewProjectPage() {
       containerMemory: appDefaults.memory,
     }));
 
-    setProjectId(project.id);
-    setStep(2);
+    // Redirect to GitHub App installation — callback will return to wizard Step 2
+    window.location.href = `/api/github/connect?projectId=${project.id}`;
   }, [stepOneData, stepTwoData.externalId]);
 
   const meta = STEP_META[step - 1];

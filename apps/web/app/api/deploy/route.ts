@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
   // Verify project belongs to user
   const { data: project } = await supabase
     .from("projects")
-    .select("id, name, aws_role_arn, aws_external_id, aws_region, aws_account_id")
+    .select("id, name, aws_role_arn, aws_external_id, aws_region, aws_account_id, repo_url, github_installation_id")
     .eq("id", projectId)
     .eq("user_id", user.id)
     .single();
@@ -87,6 +87,19 @@ export async function POST(req: NextRequest) {
     .update({ aws_region: config.aws_region })
     .eq("id", projectId);
 
+  // Parse repo owner + name from the stored GitHub URL
+  let githubRepoOwner: string | undefined;
+  let githubRepoName:  string | undefined;
+  if (project.repo_url) {
+    try {
+      const parts = new URL(project.repo_url).pathname.replace(/^\//, "").split("/");
+      if (parts.length >= 2) {
+        githubRepoOwner = parts[0];
+        githubRepoName  = parts[1].replace(/\.git$/, "");
+      }
+    } catch { /* invalid URL — skip */ }
+  }
+
   // Queue the deployment job
   const jobPayload = {
     deploymentId: deployment.id,
@@ -98,8 +111,11 @@ export async function POST(req: NextRequest) {
       project_name: project.name.toLowerCase().replace(/[^a-z0-9-]/g, "-"),
       aws_region:   project.aws_region ?? config.aws_region,
     },
-    awsRoleArn:    project.aws_role_arn,
-    awsExternalId: project.aws_external_id,
+    awsRoleArn:             project.aws_role_arn,
+    awsExternalId:          project.aws_external_id,
+    githubRepoOwner,
+    githubRepoName,
+    githubInstallationId:   project.github_installation_id ?? undefined,
   };
 
   if (process.env.DEPLOY_QUEUE_URL) {

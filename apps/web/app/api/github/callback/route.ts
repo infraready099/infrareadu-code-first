@@ -78,8 +78,9 @@ export async function GET(req: NextRequest) {
     `(action=${setupAction})`
   );
 
-  // Redirect back to the project detail page
-  return NextResponse.redirect(
-    new URL(`/projects/${projectId}`, req.nextUrl.origin).toString()
-  );
+  // Redirect back to the wizard (Step 2) so the user can continue setup
+  const wizardUrl = new URL("/projects/new", req.nextUrl.origin);
+  wizardUrl.searchParams.set("projectId", projectId);
+  wizardUrl.searchParams.set("step", "2");
+  return NextResponse.redirect(wizardUrl.toString());
 }

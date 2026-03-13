@@ -17,6 +17,7 @@ import { createClient } from "@supabase/supabase-js";
 import { generateConfig, ModuleType, IaCEngine } from "./services/terraform-generator";
 import { scanHcl, formatScanReport, DEFAULT_FRAMEWORKS, DEFAULT_BLOCK_ON } from "./services/security-scan";
 import { generateGitHubWorkflow, workflowConfigFromOutputs } from "./services/github-workflow";
+import { pushWorkflowToRepo } from "./services/github-push";
 
 const sts = new STSClient({ region: process.env.AWS_REGION ?? "us-east-1" });
 
@@ -122,6 +123,7 @@ interface DeployJob {
   githubRepoOwner?: string;
   githubRepoName?: string;
   githubBranch?: string;
+  githubInstallationId?: string;
 }
 
 type Credentials = {
@@ -245,11 +247,44 @@ async function processRecord(record: SQSRecord): Promise<void> {
     const workflowCfg = workflowConfigFromOutputs(flatOutputs, awsAccountId, region, branch);
 
     if (workflowCfg) {
-      flatOutputs.github_workflow_yaml = generateGitHubWorkflow(workflowCfg);
-      await appendLog(
-        deploymentId, "success",
-        "[InfraReady] GitHub Actions deploy workflow generated — add to .github/workflows/deploy.yml"
-      );
+      const workflowYaml = generateGitHubWorkflow(workflowCfg);
+      flatOutputs.github_workflow_yaml = workflowYaml;
+
+      // Auto-push to repo if GitHub App is connected
+      const appId       = process.env.GITHUB_APP_ID;
+      const privateKey  = process.env.GITHUB_APP_PRIVATE_KEY?.replace(/\\n/g, "\n");
+      const owner       = job.githubRepoOwner;
+      const repo        = job.githubRepoName;
+      const installId   = job.githubInstallationId;
+
+      if (appId && privateKey && owner && repo && installId) {
+        try {
+          await appendLog(deploymentId, "info", "\n[GitHub] Pushing deploy workflow to your repo...");
+          const fileUrl = await pushWorkflowToRepo({
+            appId,
+            privateKeyPem:  privateKey,
+            installationId: installId,
+            owner,
+            repo,
+            workflowYaml,
+          });
+          await appendLog(deploymentId, "success",
+            `[GitHub] deploy.yml pushed to your repo: ${fileUrl}\n` +
+            `[GitHub] Every push to ${branch} will now build + deploy your app automatically.`
+          );
+          flatOutputs.github_workflow_url = fileUrl;
+        } catch (ghErr) {
+          // Non-fatal — infra is deployed, just log the failure
+          await appendLog(deploymentId, "warn",
+            `[GitHub] Could not auto-push deploy.yml: ${(ghErr as Error).message}\n` +
+            `[GitHub] Copy the workflow from the outputs tab and add it manually.`
+          );
+        }
+      } else {
+        await appendLog(deploymentId, "success",
+          "[InfraReady] GitHub Actions deploy workflow generated — copy from outputs tab and add to .github/workflows/deploy.yml"
+        );
+      }
     }
 
     await updateDeployment(deploymentId, {
