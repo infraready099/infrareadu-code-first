@@ -9,7 +9,7 @@ import { createServerClient } from "@/lib/supabase/server";
  * the installation with the right project after GitHub redirects back.
  *
  * Required env vars:
- *   GITHUB_APP_SLUG — slug of the GitHub App (e.g. "infraready-deploy")
+ *   GITHUB_DEPLOY_APP_SLUG — slug of the deploy GitHub App (e.g. "infraready-deploy")
  *   NEXT_PUBLIC_APP_URL — base URL for building the callback (e.g. https://infraready.io)
  */
 export async function GET(req: NextRequest) {
@@ -38,10 +38,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
-  const appSlug = process.env.GITHUB_APP_SLUG;
+  const appSlug = process.env.GITHUB_DEPLOY_APP_SLUG;
 
   if (!appSlug) {
-    console.error("[github/connect] GITHUB_APP_SLUG env var is not set");
+    console.error("[github/connect] GITHUB_DEPLOY_APP_SLUG env var is not set");
     return NextResponse.json(
       { error: "GitHub integration is not configured. Contact support." },
       { status: 503 }
