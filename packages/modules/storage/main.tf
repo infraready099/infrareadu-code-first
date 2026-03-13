@@ -1,3 +1,10 @@
+# ACM certificates for CloudFront must be in us-east-1 regardless of the deployment region.
+# This alias is instantiated here so the module works as a standalone root module.
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+}
+
 locals {
   name = "${var.project_name}-${var.environment}"
 

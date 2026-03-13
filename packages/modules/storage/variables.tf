@@ -25,6 +25,12 @@ variable "enable_access_logging" {
   default     = true
 }
 
+variable "aws_region" {
+  description = "AWS region. Passed by the runner but not used directly — the provider inherits it from environment."
+  type        = string
+  default     = "us-east-1"
+}
+
 variable "tags" {
   type    = map(string)
   default = {}
