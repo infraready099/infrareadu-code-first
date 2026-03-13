@@ -10,6 +10,11 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { S3Client } from "@aws-sdk/client-s3";
 import { EC2Client, DescribeVpcsCommand, DescribeAddressesCommand } from "@aws-sdk/client-ec2";
+import {
+  SecretsManagerClient,
+  DescribeSecretCommand,
+  DeleteSecretCommand,
+} from "@aws-sdk/client-secrets-manager";
 
 const execFileAsync = promisify(execFile);
 
@@ -191,6 +196,34 @@ async function tryImportOrphans(
       }
     } catch {
       // EC2 lookup failed (permissions, network) — proceed without import
+    }
+  }
+
+  // For the RDS module: if the Secrets Manager secret is pending deletion,
+  // force-delete it so the apply can recreate it cleanly.
+  // This happens on retries when a previous attempt created and then failed to delete the secret.
+  if (module === "rds") {
+    try {
+      const secretName = `infraready/${name}/rds-credentials`;
+      const sm = new SecretsManagerClient({
+        region,
+        credentials: {
+          accessKeyId: env.AWS_ACCESS_KEY_ID!,
+          secretAccessKey: env.AWS_SECRET_ACCESS_KEY!,
+          sessionToken: env.AWS_SESSION_TOKEN,
+        },
+      });
+      const desc = await sm.send(new DescribeSecretCommand({ SecretId: secretName }));
+      if (desc.DeletedDate) {
+        // Secret is pending deletion — force-delete it so tofu can recreate it
+        await sm.send(new DeleteSecretCommand({
+          SecretId: secretName,
+          ForceDeleteWithoutRecovery: true,
+        }));
+        await onLog("info", `[tofu] Force-deleted pending-deletion secret: ${secretName}`);
+      }
+    } catch {
+      // Secret doesn't exist or already gone — fine
     }
   }
 

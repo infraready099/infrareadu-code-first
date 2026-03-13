@@ -440,6 +440,9 @@ function buildModuleConfig(
         instance_class:        config.db_instance ?? "db.t3.micro",
         multi_az:              config.db_multi_az ?? false,
         deletion_protection:   config.environment === "production",
+        // Free-tier accounts reject backup_retention_period > 1.
+        // Default to 1; production users can override via wizard config.
+        backup_retention_days: config.backup_retention_days ?? 1,
       };
 
     case "ecs":

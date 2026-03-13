@@ -129,9 +129,10 @@ resource "random_password" "db" {
 # SOC2 CC6.1 — Credentials never in plaintext, never in environment variables
 
 resource "aws_secretsmanager_secret" "db" {
-  name        = "infraready/${local.name}/rds-credentials"
-  description = "Database credentials for ${local.name}"
-  kms_key_id  = aws_kms_key.rds.arn
+  name                    = "infraready/${local.name}/rds-credentials"
+  description             = "Database credentials for ${local.name}"
+  kms_key_id              = aws_kms_key.rds.arn
+  recovery_window_in_days = 0
 
   tags = local.common_tags
 }
