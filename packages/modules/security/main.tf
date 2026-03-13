@@ -512,6 +512,8 @@ resource "aws_config_conformance_pack" "soc2" {
         Type: AWS::Config::ConfigRule
         Properties:
           ConfigRuleName: access-keys-rotated
+          InputParameters:
+            maxAccessKeyAge: "90"
           Source:
             Owner: AWS
             SourceIdentifier: ACCESS_KEYS_ROTATED
