@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Github,
@@ -920,7 +920,7 @@ const STEP_META = [
   { icon: <Rocket className="w-4 h-4" />,  title: "Configure infrastructure",    sub: "Pick a tier and customize your modules." },
 ];
 
-export default function NewProjectPage() {
+function NewProjectPageInner() {
   const searchParams = useSearchParams();
 
   const [step, setStep]           = useState<Step>(1);
@@ -1085,5 +1085,13 @@ export default function NewProjectPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function NewProjectPage() {
+  return (
+    <Suspense>
+      <NewProjectPageInner />
+    </Suspense>
   );
 }
