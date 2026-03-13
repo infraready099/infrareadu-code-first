@@ -8,8 +8,9 @@ variable "environment" {
 }
 
 variable "alert_email" {
-  description = "Email address to receive security alerts and billing alarms."
+  description = "Email address to receive security alerts and billing alarms. Leave empty to skip SNS email subscriptions."
   type        = string
+  default     = ""
 }
 
 variable "billing_alarm_threshold_usd" {

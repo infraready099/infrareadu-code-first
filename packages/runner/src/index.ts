@@ -426,16 +426,19 @@ function buildModuleConfig(
         enable_access_logging: true,
       };
 
-    case "security":
+    case "security": {
+      // security module doesn't declare aws_region — omit it to avoid warnings
+      const { aws_region: _r, ...securityBase } = base;
       return {
-        ...base,
-        alert_email:                 config.alert_email,
+        ...securityBase,
+        alert_email:                 config.alert_email ?? "",
         billing_alarm_threshold_usd: config.billing_threshold ?? 100,
         enable_guardduty:            true,
         enable_security_hub:         true,
         enable_config:               true,
         log_retention_days:          365,
       };
+    }
 
     default:
       return base;
