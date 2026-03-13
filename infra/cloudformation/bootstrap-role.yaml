@@ -177,6 +177,7 @@ Resources:
                   - events:UntagResource
                   - iam:UpdateAccountPasswordPolicy
                   - iam:GetAccountPasswordPolicy
+                  - iam:DeleteAccountPasswordPolicy
                 Resource: "*"
 
               # ── GuardDuty + Security Hub ──────────────────────────────────────

@@ -430,15 +430,6 @@ resource "aws_config_conformance_pack" "soc2" {
   name  = "${local.name}-soc2"
 
   template_body = <<-EOT
-    Parameters:
-      AccessKeysRotatedParamMaxAccessKeyAge:
-        Default: "90"
-      IamPasswordPolicyParamMaxPasswordAge:
-        Default: "90"
-      IamPasswordPolicyParamMinimumPasswordLength:
-        Default: "16"
-      IamPasswordPolicyParamPasswordReusePrevention:
-        Default: "12"
     Resources:
       CloudTrailEnabled:
         Type: AWS::Config::ConfigRule
@@ -461,13 +452,6 @@ resource "aws_config_conformance_pack" "soc2" {
           Source:
             Owner: AWS
             SourceIdentifier: CLOUD_TRAIL_LOG_FILE_VALIDATION_ENABLED
-      GuardDutyEnabledCentralized:
-        Type: AWS::Config::ConfigRule
-        Properties:
-          ConfigRuleName: guardduty-enabled-centralized
-          Source:
-            Owner: AWS
-            SourceIdentifier: GUARDDUTY_ENABLED_CENTRALIZED
       RdsInstancePublicAccessCheck:
         Type: AWS::Config::ConfigRule
         Properties:
@@ -528,8 +512,6 @@ resource "aws_config_conformance_pack" "soc2" {
         Type: AWS::Config::ConfigRule
         Properties:
           ConfigRuleName: access-keys-rotated
-          InputParameters:
-            maxAccessKeyAge: "90"
           Source:
             Owner: AWS
             SourceIdentifier: ACCESS_KEYS_ROTATED
