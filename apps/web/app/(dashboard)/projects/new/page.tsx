@@ -9,6 +9,7 @@ import {
   Loader2,
   AlertCircle,
   ArrowLeft,
+  ArrowRight,
   Rocket,
   Shield,
   Database,
@@ -553,13 +554,24 @@ function StepTwo({
         )}
       </div>
 
-      <button
-        onClick={onBack}
-        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-gray-400 hover:text-gray-200 transition-colors"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Back
-      </button>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={onBack}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-gray-400 hover:text-gray-200 transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back
+        </button>
+        {isConnected && (
+          <button
+            onClick={onContinue}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-400 text-white text-sm font-semibold transition-all"
+          >
+            Continue
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        )}
+      </div>
     </div>
   );
 }
