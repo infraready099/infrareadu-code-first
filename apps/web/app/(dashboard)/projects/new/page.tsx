@@ -380,9 +380,11 @@ function StepTwo({
   onContinue: () => void;
   onBack: () => void;
 }) {
-  const [cfClicked,   setCfClicked]   = useState(false);
-  const [verifying,   setVerifying]   = useState(false);
-  const [verifyError, setVerifyError] = useState("");
+  const [cfClicked,      setCfClicked]      = useState(false);
+  const [verifying,      setVerifying]      = useState(false);
+  const [verifyError,    setVerifyError]    = useState("");
+  const [existingRole,   setExistingRole]   = useState(false);
+  const [customExtId,    setCustomExtId]    = useState("");
 
   const cfUrl =
     `https://console.aws.amazon.com/cloudformation/home#/stacks/create/review` +
@@ -398,6 +400,14 @@ function StepTwo({
     setVerifyError("");
     setVerifying(true);
     try {
+      // If using existing role with custom External ID, update it in Supabase first
+      if (existingRole && customExtId.trim()) {
+        const supabase = createClient();
+        await supabase
+          .from("projects")
+          .update({ aws_external_id: customExtId.trim() })
+          .eq("id", projectId);
+      }
       const res  = await fetch("/api/aws/connect", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
@@ -460,12 +470,36 @@ function StepTwo({
           </p>
         )}
 
-        <div>
-          <p className="text-xs text-gray-500 mb-1.5">Your External ID (pre-filled in the stack)</p>
-          <code className="block text-xs bg-[#0d1117] border border-white/[0.06] rounded-lg px-3 py-2 text-orange-300 font-mono break-all">
-            {data.externalId}
-          </code>
-        </div>
+        {!existingRole && (
+          <div>
+            <p className="text-xs text-gray-500 mb-1.5">Your External ID (pre-filled in the stack)</p>
+            <code className="block text-xs bg-[#0d1117] border border-white/[0.06] rounded-lg px-3 py-2 text-orange-300 font-mono break-all">
+              {data.externalId}
+            </code>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setExistingRole((v) => !v)}
+          className="text-xs text-gray-500 hover:text-gray-300 underline underline-offset-2 transition-colors"
+        >
+          {existingRole ? "New role — use auto-generated External ID" : "Already have InfraReadyRole? Use existing External ID"}
+        </button>
+
+        {existingRole && (
+          <div>
+            <p className="text-xs text-gray-500 mb-1.5">Your existing External ID</p>
+            <input
+              type="text"
+              placeholder="Paste your original External ID here"
+              value={customExtId}
+              onChange={(e) => setCustomExtId(e.target.value)}
+              className={`${inputCls} font-mono`}
+            />
+            <p className="text-xs text-gray-600 mt-1">Find it in CloudFormation → your existing stack → Parameters tab</p>
+          </div>
+        )}
       </div>
 
       {/* Step 2: Paste ARN */}
