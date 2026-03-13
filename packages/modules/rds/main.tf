@@ -34,7 +34,7 @@ resource "aws_kms_alias" "rds" {
 
 resource "aws_security_group" "rds" {
   name        = "${local.name}-rds-sg"
-  description = "Security group for ${local.name} RDS — allows inbound from app layer only"
+  description = "Security group for ${local.name} RDS - allows inbound from app layer only"
   vpc_id      = var.vpc_id
 
   # Allow inbound from app security group if provided
@@ -70,7 +70,7 @@ resource "aws_security_group" "rds" {
 
 resource "aws_db_subnet_group" "this" {
   name        = "${local.name}-db-subnet-group"
-  description = "Subnet group for ${local.name} RDS — private subnets only"
+  description = "Subnet group for ${local.name} RDS - private subnets only"
   subnet_ids  = var.private_subnet_ids
 
   tags = merge(local.common_tags, {
@@ -88,23 +88,25 @@ resource "aws_db_parameter_group" "this" {
 
   dynamic "parameter" {
     for_each = var.engine == "postgres" ? [
-      { name = "log_connections", value = "1" },
-      { name = "log_disconnections", value = "1" },
-      { name = "log_duration", value = "1" },
-      { name = "log_lock_waits", value = "1" },
-      { name = "log_min_duration_statement", value = "1000" }, # Log slow queries >1s
-      # pgaudit — HIPAA §164.312(b) audit controls, logs every SQL statement
-      { name = "shared_preload_libraries", value = "pg_stat_statements,pgaudit" },
-      { name = "pgaudit.log", value = "all" },                  # Log all statement classes
-      { name = "pgaudit.log_catalog", value = "1" },            # Include catalog queries
-      { name = "pgaudit.log_parameter", value = "1" },          # Log bind parameters
-      { name = "pgaudit.log_relation", value = "1" },           # Log relation OID
-      { name = "log_statement", value = "ddl" },                # Log all DDL (CREATE/ALTER/DROP)
-      { name = "log_min_error_statement", value = "error" }     # Log statements causing errors
+      # Dynamic parameters — take effect immediately
+      { name = "log_connections",           value = "1",                              apply_method = "immediate" },
+      { name = "log_disconnections",        value = "1",                              apply_method = "immediate" },
+      { name = "log_duration",              value = "1",                              apply_method = "immediate" },
+      { name = "log_lock_waits",            value = "1",                              apply_method = "immediate" },
+      { name = "log_min_duration_statement",value = "1000",                           apply_method = "immediate" },
+      { name = "pgaudit.log",               value = "all",                            apply_method = "immediate" },
+      { name = "pgaudit.log_catalog",       value = "1",                              apply_method = "immediate" },
+      { name = "pgaudit.log_parameter",     value = "1",                              apply_method = "immediate" },
+      { name = "pgaudit.log_relation",      value = "1",                              apply_method = "immediate" },
+      { name = "log_statement",             value = "ddl",                            apply_method = "immediate" },
+      { name = "log_min_error_statement",   value = "error",                          apply_method = "immediate" },
+      # Static parameter — requires DB reboot to take effect
+      { name = "shared_preload_libraries",  value = "pg_stat_statements,pgaudit",     apply_method = "pending-reboot" },
     ] : []
     content {
-      name  = parameter.value.name
-      value = parameter.value.value
+      name         = parameter.value.name
+      value        = parameter.value.value
+      apply_method = parameter.value.apply_method
     }
   }
 

@@ -111,11 +111,11 @@ export async function execOpenTofu(opts: OpenTofuOptions): Promise<Record<string
   // tofu plan
   await onLog("info", `[tofu] Planning ${module}...`);
   const planPath = join(workDir, "plan.out");
-  await runTofu(["plan", `-var-file=${tfvarsPath}`, `-out=${planPath}`], workDir, env, onLog);
+  await runTofu(["plan", "-compact-warnings", `-var-file=${tfvarsPath}`, `-out=${planPath}`], workDir, env, onLog);
 
   // tofu apply
   await onLog("info", `[tofu] Applying ${module}...`);
-  await runTofu(["apply", "-auto-approve", planPath], workDir, env, onLog);
+  await runTofu(["apply", "-compact-warnings", "-auto-approve", planPath], workDir, env, onLog);
 
   // tofu output — get the outputs as JSON
   const { stdout } = await execFileAsync(OPENTOFU_BINARY, ["output", "-json"], {
