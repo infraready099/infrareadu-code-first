@@ -32,13 +32,20 @@ const sqs = new SQSClient({ region: process.env.AWS_REGION ?? "us-east-1" });
 export async function POST(req: NextRequest) {
   const supabase = await createServerClient();
 
-  // getUser() does server-side validation; fall back to getSession() which reads
-  // the JWT from cookies directly — more reliable during redirect chains.
+  // Try Authorization: Bearer <token> header first (sent explicitly by wizard)
+  // Fall back to cookie-based session for other callers.
   let userId: string | undefined;
-  const { data: { user } } = await supabase.auth.getUser();
-  if (user) {
-    userId = user.id;
-  } else {
+  const authHeader = req.headers.get("authorization");
+  if (authHeader?.startsWith("Bearer ")) {
+    const token = authHeader.slice(7);
+    const { data: { user } } = await supabase.auth.getUser(token);
+    userId = user?.id;
+  }
+  if (!userId) {
+    const { data: { user } } = await supabase.auth.getUser();
+    userId = user?.id;
+  }
+  if (!userId) {
     const { data: { session } } = await supabase.auth.getSession();
     userId = session?.user?.id;
   }

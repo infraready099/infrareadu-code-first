@@ -758,9 +758,17 @@ function StepThree({
     }
 
     try {
+      // Get the session token and send it explicitly — more reliable than cookie propagation
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
+      if (session?.access_token) {
+        authHeaders["Authorization"] = `Bearer ${session.access_token}`;
+      }
+
       const res  = await fetch("/api/deploy", {
         method:  "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders,
         body:    JSON.stringify({ projectId, modules, config }),
       });
       const json = await res.json() as { deploymentId?: string; error?: string };
