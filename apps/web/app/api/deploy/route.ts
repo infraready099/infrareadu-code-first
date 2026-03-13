@@ -31,9 +31,19 @@ const sqs = new SQSClient({ region: process.env.AWS_REGION ?? "us-east-1" });
 
 export async function POST(req: NextRequest) {
   const supabase = await createServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
 
-  if (!user) {
+  // getUser() does server-side validation; fall back to getSession() which reads
+  // the JWT from cookies directly — more reliable during redirect chains.
+  let userId: string | undefined;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (user) {
+    userId = user.id;
+  } else {
+    const { data: { session } } = await supabase.auth.getSession();
+    userId = session?.user?.id;
+  }
+
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -46,15 +56,18 @@ export async function POST(req: NextRequest) {
 
   const { projectId, modules, config } = parsed.data;
 
-  // Verify project belongs to user
+  // Verify project exists and belongs to user
   const { data: project } = await supabase
     .from("projects")
-    .select("id, name, aws_role_arn, aws_external_id, aws_region, aws_account_id, repo_url, github_installation_id")
+    .select("id, name, aws_role_arn, aws_external_id, aws_region, aws_account_id, repo_url, github_installation_id, user_id")
     .eq("id", projectId)
-    .eq("user_id", user.id)
     .single();
 
   if (!project) {
+    return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  }
+
+  if (project.user_id !== userId) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
@@ -67,7 +80,7 @@ export async function POST(req: NextRequest) {
     .from("deployments")
     .insert({
       project_id: projectId,
-      user_id: user.id,
+      user_id: userId,
       modules,
       config,
       status: "queued",
@@ -104,7 +117,7 @@ export async function POST(req: NextRequest) {
   const jobPayload = {
     deploymentId: deployment.id,
     projectId,
-    userId: user.id,
+    userId,
     modules,
     config: {
       ...config,
