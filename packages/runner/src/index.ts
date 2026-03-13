@@ -60,6 +60,7 @@ const FATAL_PATTERNS = [
   "SignatureDoesNotMatch",
   "InvalidSignatureException",
   // AWS account quota errors — retrying will never succeed
+  "SubscriptionRequiredException", // GuardDuty/SecurityHub need console enrollment first
   "VpcLimitExceeded",
   "AddressLimitExceeded",
   "InstanceLimitExceeded",
@@ -433,8 +434,11 @@ function buildModuleConfig(
         ...securityBase,
         alert_email:                 config.alert_email ?? "",
         billing_alarm_threshold_usd: config.billing_threshold ?? 100,
-        enable_guardduty:            true,
-        enable_security_hub:         true,
+        // GuardDuty + SecurityHub require account enrollment before API activation.
+        // Fresh AWS accounts hit SubscriptionRequiredException via API.
+        // Disabled by default — customers can enable after initial deploy.
+        enable_guardduty:            false,
+        enable_security_hub:         false,
         enable_config:               true,
         log_retention_days:          365,
       };

@@ -103,6 +103,7 @@ resource "aws_sns_topic" "alerts" {
 }
 
 resource "aws_sns_topic_subscription" "email" {
+  count     = var.alert_email != "" ? 1 : 0
   topic_arn = aws_sns_topic.alerts.arn
   protocol  = "email"
   endpoint  = var.alert_email
@@ -114,7 +115,7 @@ resource "aws_sns_topic_subscription" "email" {
 
 resource "aws_s3_bucket" "cloudtrail" {
   bucket        = "${local.name}-cloudtrail-${data.aws_caller_identity.current.account_id}"
-  force_destroy = false
+  force_destroy = true
 
   tags = merge(local.common_tags, { Name = "${local.name}-cloudtrail" })
 }
@@ -161,8 +162,14 @@ resource "aws_s3_bucket_lifecycle_configuration" "cloudtrail" {
       days          = 730
       storage_class = "DEEP_ARCHIVE" # Cheapest storage for 7-year HIPAA retention
     }
-    expiration {
-      days = local.effective_retention_days
+    # Only expire when retention > 730 days (i.e. HIPAA mode = 2555 days).
+    # Non-HIPAA default (365 days) is less than the 730-day DEEP_ARCHIVE transition,
+    # which AWS rejects. Objects stay in DEEP_ARCHIVE until manually deleted.
+    dynamic "expiration" {
+      for_each = local.effective_retention_days > 730 ? [local.effective_retention_days] : []
+      content {
+        days = expiration.value
+      }
     }
   }
 }
@@ -197,6 +204,29 @@ resource "aws_s3_bucket_policy" "cloudtrail" {
         }
       },
       {
+        Sid    = "AWSConfigAclCheck"
+        Effect = "Allow"
+        Principal = { Service = "config.amazonaws.com" }
+        Action   = "s3:GetBucketAcl"
+        Resource = aws_s3_bucket.cloudtrail.arn
+        Condition = {
+          StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.current.account_id }
+        }
+      },
+      {
+        Sid    = "AWSConfigWrite"
+        Effect = "Allow"
+        Principal = { Service = "config.amazonaws.com" }
+        Action   = "s3:PutObject"
+        Resource = "${aws_s3_bucket.cloudtrail.arn}/AWSLogs/${data.aws_caller_identity.current.account_id}/Config/*"
+        Condition = {
+          StringEquals = {
+            "s3:x-amz-acl"      = "bucket-owner-full-control"
+            "aws:SourceAccount" = data.aws_caller_identity.current.account_id
+          }
+        }
+      },
+      {
         Sid       = "DenyNonTLS"
         Effect    = "Deny"
         Principal = "*"
@@ -205,11 +235,19 @@ resource "aws_s3_bucket_policy" "cloudtrail" {
         Condition = { Bool = { "aws:SecureTransport" = "false" } }
       },
       {
-        Sid    = "DenyDelete"
+        Sid    = "DenyDeleteExceptDeployer"
         Effect = "Deny"
         Principal = "*"
         Action = ["s3:DeleteObject", "s3:DeleteBucket", "s3:DeleteObjectVersion"]
         Resource = [aws_s3_bucket.cloudtrail.arn, "${aws_s3_bucket.cloudtrail.arn}/*"]
+        Condition = {
+          StringNotLike = {
+            "aws:PrincipalArn" = [
+              "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root",
+              "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/InfraReadyRole"
+            ]
+          }
+        }
       }
     ]
   })

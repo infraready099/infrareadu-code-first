@@ -155,8 +155,9 @@ Resources:
                 Resource: "*"
 
               # ── Security Baseline (security module) ──────────────────────────
-              # CloudTrail, CloudWatch alarms/dashboards, CloudWatch Logs, and
-              # AWS Config rules are all part of the security baseline module.
+              # CloudTrail, CloudWatch alarms/dashboards, CloudWatch Logs,
+              # AWS Config rules, EventBridge (GuardDuty/SecurityHub routing),
+              # and IAM password policy are all part of the security baseline.
               - Sid: SecurityBaseline
                 Effect: Allow
                 Action:
@@ -164,6 +165,18 @@ Resources:
                   - cloudwatch:*
                   - logs:*
                   - config:*
+                  - events:PutRule
+                  - events:PutTargets
+                  - events:DescribeRule
+                  - events:DeleteRule
+                  - events:RemoveTargets
+                  - events:ListTargetsByRule
+                  - events:ListRuleNamesByTarget
+                  - events:ListTagsForResource
+                  - events:TagResource
+                  - events:UntagResource
+                  - iam:UpdateAccountPasswordPolicy
+                  - iam:GetAccountPasswordPolicy
                 Resource: "*"
 
               # ── GuardDuty + Security Hub ──────────────────────────────────────
