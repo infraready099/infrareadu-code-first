@@ -29,13 +29,43 @@ export async function GET(req: NextRequest) {
   // Verify the project exists and belongs to this user
   const { data: project } = await supabase
     .from("projects")
-    .select("id")
+    .select("id, github_installation_id")
     .eq("id", projectId)
     .eq("user_id", user.id)
     .single();
 
   if (!project) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  }
+
+  // If this project already has an installation_id, skip GitHub and go to Step 2
+  if (project.github_installation_id) {
+    const wizardUrl = new URL("/projects/new", req.nextUrl.origin);
+    wizardUrl.searchParams.set("projectId", projectId);
+    wizardUrl.searchParams.set("step", "2");
+    return NextResponse.redirect(wizardUrl.toString());
+  }
+
+  // Check if the user has any other project with an installation_id — reuse it
+  const { data: existingInstall } = await supabase
+    .from("projects")
+    .select("github_installation_id")
+    .eq("user_id", user.id)
+    .not("github_installation_id", "is", null)
+    .limit(1)
+    .single();
+
+  if (existingInstall?.github_installation_id) {
+    // Copy the installation_id to this project and skip GitHub
+    await supabase
+      .from("projects")
+      .update({ github_installation_id: existingInstall.github_installation_id })
+      .eq("id", projectId);
+
+    const wizardUrl = new URL("/projects/new", req.nextUrl.origin);
+    wizardUrl.searchParams.set("projectId", projectId);
+    wizardUrl.searchParams.set("step", "2");
+    return NextResponse.redirect(wizardUrl.toString());
   }
 
   const appSlug = process.env.GITHUB_DEPLOY_APP_SLUG;
@@ -48,7 +78,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // GitHub App installation URL — state parameter round-trips back to our callback
+  // First time — redirect to GitHub App installation
   const installUrl = new URL(`https://github.com/apps/${appSlug}/installations/new`);
   installUrl.searchParams.set("state", projectId);
 
