@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
 import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import { z } from "zod";
 
@@ -30,22 +31,26 @@ const deploySchema = z.object({
 const sqs = new SQSClient({ region: process.env.AWS_REGION ?? "us-east-1" });
 
 export async function POST(req: NextRequest) {
-  const supabase = await createServerClient();
-
-  // Try Authorization: Bearer <token> header first (sent explicitly by wizard)
-  // Fall back to cookie-based session for other callers.
-  let userId: string | undefined;
+  // If the client sent an explicit Bearer token, use it to build an authenticated
+  // Supabase client — this bypasses cookie propagation issues entirely and ensures
+  // RLS policies run in the correct user context.
   const authHeader = req.headers.get("authorization");
-  if (authHeader?.startsWith("Bearer ")) {
-    const token = authHeader.slice(7);
-    const { data: { user } } = await supabase.auth.getUser(token);
-    userId = user?.id;
-  }
-  if (!userId) {
-    const { data: { user } } = await supabase.auth.getUser();
-    userId = user?.id;
-  }
-  if (!userId) {
+  const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+
+  // Build a Supabase client that is authenticated as the calling user
+  const supabase = bearerToken
+    ? createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { global: { headers: { Authorization: `Bearer ${bearerToken}` } } }
+      )
+    : await createServerClient();
+
+  // Resolve userId
+  const { data: { user } } = await supabase.auth.getUser();
+  let userId: string | undefined = user?.id;
+  if (!userId && !bearerToken) {
+    // Cookie-based fallback: read JWT directly without server validation
     const { data: { session } } = await supabase.auth.getSession();
     userId = session?.user?.id;
   }
