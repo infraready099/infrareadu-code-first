@@ -143,6 +143,14 @@ Resources:
                   - iam:ListInstanceProfilesForRole
                   # Required on first ALB deploy — ELB creates its service-linked role
                   - iam:CreateServiceLinkedRole
+                  # Required for GitHub Actions OIDC provider (security module)
+                  - iam:CreateOpenIDConnectProvider
+                  - iam:GetOpenIDConnectProvider
+                  - iam:DeleteOpenIDConnectProvider
+                  - iam:TagOpenIDConnectProvider
+                  - iam:UntagOpenIDConnectProvider
+                  - iam:UpdateOpenIDConnectProviderThumbprint
+                  - iam:ListOpenIDConnectProviders
                 Resource: "*"
 
               # ── CloudFormation ────────────────────────────────────────────────

@@ -16,8 +16,12 @@ import { execOpenTofu, destroyOpenTofu } from "./opentofu";
 import { createClient } from "@supabase/supabase-js";
 import { generateConfig, ModuleType, IaCEngine } from "./services/terraform-generator";
 import { scanHcl, formatScanReport, DEFAULT_FRAMEWORKS, DEFAULT_BLOCK_ON } from "./services/security-scan";
-import { generateGitHubWorkflow, workflowConfigFromOutputs } from "./services/github-workflow";
-import { pushWorkflowToRepo } from "./services/github-push";
+import {
+  generateGitHubWorkflow, workflowConfigFromOutputs,
+  generateStaticWorkflow, staticWorkflowConfigFromOutputs,
+} from "./services/github-workflow";
+import { pushRepoFile, getInstallationToken } from "./services/github-push";
+import { getHandlerById } from "./app-types";
 
 const sts = new STSClient({ region: process.env.AWS_REGION ?? "us-east-1" });
 
@@ -220,7 +224,10 @@ async function processRecord(record: SQSRecord): Promise<void> {
       await appendLog(deploymentId, "info", `\n[OpenTofu] Deploying module: ${moduleName}`);
       await updateDeployment(deploymentId, { current_module: moduleName });
 
-      const moduleConfig = buildModuleConfig(moduleName, job.config, outputs);
+      const moduleConfig = buildModuleConfig(moduleName, job.config, outputs, {
+        githubRepoOwner: job.githubRepoOwner,
+        githubRepoName:  job.githubRepoName,
+      });
 
       const moduleOutputs = await deployModuleWithRetry({
         moduleName,
@@ -242,49 +249,96 @@ async function processRecord(record: SQSRecord): Promise<void> {
 
     const flatOutputs = formatOutputs(outputs);
 
-    // Generate GitHub Actions workflow if ECS was deployed
-    const branch = (job.config.github_branch as string | undefined) ?? job.githubBranch ?? "main";
-    const workflowCfg = workflowConfigFromOutputs(flatOutputs, awsAccountId, region, branch);
+    // ── Step 4b: Generate GitHub Actions workflow (ECS or Static) ────────────
+    const branch           = (job.config.github_branch as string | undefined) ?? job.githubBranch ?? "main";
+    const deploymentTarget = (job.config.deployment_target as string | undefined) ?? "ecs";
 
-    if (workflowCfg) {
-      const workflowYaml = generateGitHubWorkflow(workflowCfg);
-      flatOutputs.github_workflow_yaml = workflowYaml;
+    let workflowYaml: string | undefined;
 
-      // Auto-push to repo if GitHub App is connected
-      const appId       = process.env.GITHUB_DEPLOY_APP_ID;
-      const privateKey  = process.env.GITHUB_DEPLOY_APP_PRIVATE_KEY?.replace(/\\n/g, "\n");
-      const owner       = job.githubRepoOwner;
-      const repo        = job.githubRepoName;
-      const installId   = job.githubInstallationId;
+    if (deploymentTarget === "static") {
+      const staticCfg = staticWorkflowConfigFromOutputs(
+        flatOutputs, region, branch,
+        job.config.build_command as string | undefined,
+        job.config.output_directory as string | undefined,
+      );
+      if (staticCfg) {
+        workflowYaml = generateStaticWorkflow(staticCfg);
+        flatOutputs.github_workflow_yaml = workflowYaml;
+      }
+    } else {
+      // ECS deployment
+      const workflowCfg = workflowConfigFromOutputs(flatOutputs, awsAccountId, region, branch);
+      if (workflowCfg) {
+        workflowYaml = generateGitHubWorkflow(workflowCfg);
+        flatOutputs.github_workflow_yaml = workflowYaml;
+      }
+    }
 
-      if (appId && privateKey && owner && repo && installId) {
-        try {
-          await appendLog(deploymentId, "info", "\n[GitHub] Pushing deploy workflow to your repo...");
-          const fileUrl = await pushWorkflowToRepo({
-            appId,
-            privateKeyPem:  privateKey,
-            installationId: installId,
-            owner,
-            repo,
-            workflowYaml,
-          });
-          await appendLog(deploymentId, "success",
-            `[GitHub] deploy.yml pushed to your repo: ${fileUrl}\n` +
-            `[GitHub] Every push to ${branch} will now build + deploy your app automatically.`
-          );
-          flatOutputs.github_workflow_url = fileUrl;
-        } catch (ghErr) {
-          // Non-fatal — infra is deployed, just log the failure
-          await appendLog(deploymentId, "warn",
-            `[GitHub] Could not auto-push deploy.yml: ${(ghErr as Error).message}\n` +
-            `[GitHub] Copy the workflow from the outputs tab and add it manually.`
-          );
-        }
-      } else {
+    // Auto-push to repo if GitHub App is connected
+    const appId      = process.env.GITHUB_APP_ID;
+    const privateKey = process.env.GITHUB_APP_PRIVATE_KEY?.replace(/\\n/g, "\n");
+    const owner      = job.githubRepoOwner;
+    const repo       = job.githubRepoName;
+    const installId  = job.githubInstallationId;
+
+    if (workflowYaml && appId && privateKey && owner && repo && installId) {
+      try {
+        await appendLog(deploymentId, "info", "\n[GitHub] Pushing deploy workflow to your repo...");
+
+        // Get one token — reuse it for all file pushes
+        const ghToken = await getInstallationToken(appId, privateKey, installId);
+
+        const workflowUrl = await pushRepoFile({
+          token:         ghToken,
+          owner,
+          repo,
+          filePath:      ".github/workflows/deploy.yml",
+          content:       workflowYaml,
+          commitMessage: "chore: add/update InfraReady deploy workflow",
+        });
+        flatOutputs.github_workflow_url = workflowUrl;
         await appendLog(deploymentId, "success",
-          "[InfraReady] GitHub Actions deploy workflow generated — copy from outputs tab and add to .github/workflows/deploy.yml"
+          `[GitHub] deploy.yml pushed: ${workflowUrl}\n` +
+          `[GitHub] Every push to ${branch} will now build + deploy your app automatically.`
+        );
+
+        // For ECS deployments: also push a generated Dockerfile if the repo has none
+        if (deploymentTarget === "ecs") {
+          const appTypeId = job.config.app_type as string | undefined;
+          const handler   = appTypeId ? getHandlerById(appTypeId) : undefined;
+          if (handler?.generateDockerfile) {
+            try {
+              const dockerfileContent = handler.generateDockerfile();
+              // Only push if Dockerfile doesn't already exist
+              const dockerfileUrl = await pushRepoFile({
+                token:         ghToken,
+                owner,
+                repo,
+                filePath:      "Dockerfile",
+                content:       dockerfileContent,
+                commitMessage: `chore: add InfraReady-generated Dockerfile for ${handler.label}`,
+              });
+              flatOutputs.github_dockerfile_url = dockerfileUrl;
+              await appendLog(deploymentId, "success",
+                `[GitHub] Dockerfile pushed: ${dockerfileUrl}`
+              );
+            } catch {
+              // Dockerfile likely already exists — not an error
+            }
+          }
+        }
+
+      } catch (ghErr) {
+        // Non-fatal — infra is deployed, just warn
+        await appendLog(deploymentId, "warn",
+          `[GitHub] Could not auto-push deploy.yml: ${(ghErr as Error).message}\n` +
+          `[GitHub] Copy the workflow from the outputs tab and add it manually.`
         );
       }
+    } else if (workflowYaml) {
+      await appendLog(deploymentId, "success",
+        "[InfraReady] GitHub Actions deploy workflow generated — copy from outputs tab and add to .github/workflows/deploy.yml"
+      );
     }
 
     await updateDeployment(deploymentId, {
@@ -412,7 +466,8 @@ async function cleanupModule(
 function buildModuleConfig(
   module: string,
   config: Record<string, unknown>,
-  previousOutputs: Record<string, Record<string, unknown>>
+  previousOutputs: Record<string, Record<string, unknown>>,
+  ctx?: { githubRepoOwner?: string; githubRepoName?: string }
 ): Record<string, unknown> {
   const base = {
     project_name: config.project_name,
@@ -468,6 +523,11 @@ function buildModuleConfig(
     case "security": {
       // security module doesn't declare aws_region — omit it to avoid warnings
       const { aws_region: _r, ...securityBase } = base;
+
+      const githubRepoSlug = (ctx?.githubRepoOwner && ctx?.githubRepoName)
+        ? `${ctx.githubRepoOwner}/${ctx.githubRepoName}` : undefined;
+      const deploymentTarget = (config.deployment_target as string | undefined) ?? "ecs";
+
       return {
         ...securityBase,
         alert_email:                 config.alert_email ?? "",
@@ -479,6 +539,15 @@ function buildModuleConfig(
         enable_security_hub:         false,
         enable_config:               true,
         log_retention_days:          365,
+        // GitHub Actions OIDC deploy role — enabled when GitHub App is connected
+        enable_github_deploy_role:   !!githubRepoSlug,
+        ...(githubRepoSlug ? {
+          github_repo_slug:            githubRepoSlug,
+          deployment_target:           deploymentTarget,
+          ecr_repository_arn:          previousOutputs.ecs?.ecr_repository_arn ?? "",
+          s3_bucket_arn:               previousOutputs.storage?.bucket_arn ?? "",
+          cloudfront_distribution_arn: previousOutputs.storage?.cloudfront_distribution_arn ?? "",
+        } : {}),
       };
     }
 
@@ -508,23 +577,28 @@ function formatOutputs(
   }
 
   if (moduleOutputs.ecs) {
-    out.app_url      = moduleOutputs.ecs.app_url;
-    out.ecr_url      = moduleOutputs.ecs.ecr_repository_url;
-    out.cluster_name = moduleOutputs.ecs.ecs_cluster_name;
-    out.service_name = moduleOutputs.ecs.ecs_service_name;
-    out.log_group    = moduleOutputs.ecs.log_group_name;
+    out.app_url             = moduleOutputs.ecs.app_url;
+    out.ecr_url             = moduleOutputs.ecs.ecr_repository_url;
+    out.ecr_repository_arn  = moduleOutputs.ecs.ecr_repository_arn;
+    out.cluster_name        = moduleOutputs.ecs.ecs_cluster_name;
+    out.service_name        = moduleOutputs.ecs.ecs_service_name;
+    out.log_group           = moduleOutputs.ecs.log_group_name;
     out.task_role_arn       = moduleOutputs.ecs.task_role_arn;
     out.execution_role_arn  = moduleOutputs.ecs.execution_role_arn;
   }
 
   if (moduleOutputs.storage) {
-    out.cdn_url     = moduleOutputs.storage.cdn_url;
-    out.bucket_name = moduleOutputs.storage.bucket_name;
-    out.bucket_arn  = moduleOutputs.storage.bucket_arn;
+    out.cdn_url                    = moduleOutputs.storage.cdn_url;
+    out.bucket_name                = moduleOutputs.storage.bucket_name;
+    out.bucket_arn                 = moduleOutputs.storage.bucket_arn;
+    out.cloudfront_distribution_id = moduleOutputs.storage.cloudfront_distribution_id;
+    out.cloudfront_distribution_arn = moduleOutputs.storage.cloudfront_distribution_arn;
   }
 
   if (moduleOutputs.security) {
-    out.alerts_topic_arn = moduleOutputs.security.alerts_topic_arn;
+    out.alerts_topic_arn         = moduleOutputs.security.alerts_topic_arn;
+    out.github_deploy_role_arn   = moduleOutputs.security.github_deploy_role_arn;
+    out.github_oidc_provider_arn = moduleOutputs.security.github_oidc_provider_arn;
   }
 
   return out;

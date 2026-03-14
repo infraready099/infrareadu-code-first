@@ -104,28 +104,22 @@ function githubRequest<T>(
   });
 }
 
-// ─── Public function ──────────────────────────────────────────────────────────
+// ─── Public functions ─────────────────────────────────────────────────────────
 
 /**
- * Pushes `.github/workflows/deploy.yml` into the customer's repo.
- * Creates the file if it doesn't exist; updates it if it does.
- * Returns the URL of the committed file.
+ * Generic: push any file into a repo using an already-obtained installation token.
+ * Creates the file if missing, updates it if present. Returns the html_url.
  */
-export async function pushWorkflowToRepo(params: PushWorkflowParams): Promise<string> {
-  const { appId, privateKeyPem, installationId, owner, repo, workflowYaml } = params;
-
-  // Step 1 — get installation access token
-  const jwt = makeAppJwt(appId, privateKeyPem);
-  const tokenResp = await githubRequest<{ token: string }>(
-    `/app/installations/${installationId}/access_tokens`,
-    "POST",
-    jwt
-  );
-  const token = tokenResp.token;
-
-  // Step 2 — check if file exists (to get its SHA for update)
-  const filePath = ".github/workflows/deploy.yml";
-  const apiPath  = `/repos/${owner}/${repo}/contents/${filePath}`;
+export async function pushRepoFile(params: {
+  token: string;
+  owner: string;
+  repo: string;
+  filePath: string;
+  content: string;
+  commitMessage: string;
+}): Promise<string> {
+  const { token, owner, repo, filePath, content, commitMessage } = params;
+  const apiPath = `/repos/${owner}/${repo}/contents/${filePath}`;
 
   let existingSha: string | undefined;
   try {
@@ -135,22 +129,46 @@ export async function pushWorkflowToRepo(params: PushWorkflowParams): Promise<st
     // 404 = file doesn't exist yet — that's fine
   }
 
-  // Step 3 — create or update the file
-  const content = Buffer.from(workflowYaml).toString("base64");
-  const message = existingSha
-    ? "chore: update InfraReady deploy workflow"
-    : "chore: add InfraReady deploy workflow";
-
+  const encoded = Buffer.from(content).toString("base64");
   const result = await githubRequest<{ content: { html_url: string } }>(
     apiPath,
     "PUT",
     token,
     {
-      message,
-      content,
+      message: commitMessage,
+      content: encoded,
       ...(existingSha ? { sha: existingSha } : {}),
     }
   );
 
   return result.content.html_url;
+}
+
+/** Get an installation access token for the GitHub App. */
+export async function getInstallationToken(appId: string, privateKeyPem: string, installationId: string): Promise<string> {
+  const jwt = makeAppJwt(appId, privateKeyPem);
+  const resp = await githubRequest<{ token: string }>(
+    `/app/installations/${installationId}/access_tokens`,
+    "POST",
+    jwt
+  );
+  return resp.token;
+}
+
+/**
+ * Pushes `.github/workflows/deploy.yml` into the customer's repo.
+ * Creates the file if it doesn't exist; updates it if it does.
+ * Returns the URL of the committed file.
+ */
+export async function pushWorkflowToRepo(params: PushWorkflowParams): Promise<string> {
+  const { appId, privateKeyPem, installationId, owner, repo, workflowYaml } = params;
+  const token = await getInstallationToken(appId, privateKeyPem, installationId);
+  return pushRepoFile({
+    token,
+    owner,
+    repo,
+    filePath:      ".github/workflows/deploy.yml",
+    content:       workflowYaml,
+    commitMessage: "chore: add/update InfraReady deploy workflow",
+  });
 }

@@ -65,3 +65,45 @@ variable "tags" {
   type    = map(string)
   default = {}
 }
+
+# ─── GitHub Actions OIDC deploy role ─────────────────────────────────────────
+
+variable "enable_github_deploy_role" {
+  description = "Create a GitHub OIDC provider + least-privilege deploy role. No long-lived credentials needed."
+  type        = bool
+  default     = false
+}
+
+variable "github_repo_slug" {
+  description = "GitHub repo in owner/repo format (e.g. acme/my-app). Trust is scoped to this repo only."
+  type        = string
+  default     = ""
+}
+
+variable "deployment_target" {
+  description = "Deployment target: 'ecs' (Docker + ECS Fargate) or 'static' (S3 + CloudFront)."
+  type        = string
+  default     = "ecs"
+  validation {
+    condition     = contains(["ecs", "static"], var.deployment_target)
+    error_message = "deployment_target must be 'ecs' or 'static'."
+  }
+}
+
+variable "ecr_repository_arn" {
+  description = "ARN of the ECR repository. Scopes ECR push permissions to this repo only. Required when deployment_target = 'ecs'."
+  type        = string
+  default     = ""
+}
+
+variable "s3_bucket_arn" {
+  description = "ARN of the S3 bucket for static site deployment. Required when deployment_target = 'static'."
+  type        = string
+  default     = ""
+}
+
+variable "cloudfront_distribution_arn" {
+  description = "ARN of the CloudFront distribution for cache invalidation. Required when deployment_target = 'static'."
+  type        = string
+  default     = ""
+}

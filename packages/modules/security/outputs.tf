@@ -32,3 +32,13 @@ output "guardduty_detector_id" {
   description = "GuardDuty detector ID."
   value       = length(aws_guardduty_detector.this) > 0 ? aws_guardduty_detector.this[0].id : null
 }
+
+output "github_deploy_role_arn" {
+  description = "ARN of the GitHub Actions deploy role. Add as AWS_DEPLOY_ROLE_ARN in your GitHub repo secrets."
+  value       = length(aws_iam_role.github_deploy) > 0 ? aws_iam_role.github_deploy[0].arn : null
+}
+
+output "github_oidc_provider_arn" {
+  description = "ARN of the GitHub Actions OIDC provider."
+  value       = length(aws_iam_openid_connect_provider.github_actions) > 0 ? aws_iam_openid_connect_provider.github_actions[0].arn : null
+}

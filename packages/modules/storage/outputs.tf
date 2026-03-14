@@ -22,3 +22,8 @@ output "cloudfront_distribution_id" {
   description = "CloudFront distribution ID (needed to invalidate cache)."
   value       = aws_cloudfront_distribution.app.id
 }
+
+output "cloudfront_distribution_arn" {
+  description = "CloudFront distribution ARN (used by the security module to scope the GitHub deploy role)."
+  value       = aws_cloudfront_distribution.app.arn
+}

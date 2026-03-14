@@ -13,6 +13,11 @@ output "ecr_repository_url" {
   value       = aws_ecr_repository.app.repository_url
 }
 
+output "ecr_repository_arn" {
+  description = "ECR repository ARN (used by the security module to scope the GitHub deploy role)."
+  value       = aws_ecr_repository.app.arn
+}
+
 output "ecs_cluster_name" {
   description = "ECS cluster name."
   value       = aws_ecs_cluster.this.name
