@@ -275,8 +275,8 @@ async function processRecord(record: SQSRecord): Promise<void> {
     }
 
     // Auto-push to repo if GitHub App is connected
-    const appId      = process.env.GITHUB_APP_ID;
-    const privateKey = process.env.GITHUB_APP_PRIVATE_KEY?.replace(/\\n/g, "\n");
+    const appId      = process.env.GITHUB_DEPLOY_APP_ID;
+    const privateKey = process.env.GITHUB_DEPLOY_APP_PRIVATE_KEY?.replace(/\\n/g, "\n");
     const owner      = job.githubRepoOwner;
     const repo       = job.githubRepoName;
     const installId  = job.githubInstallationId;
