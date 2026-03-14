@@ -1032,7 +1032,7 @@ function NewProjectPageInner() {
       containerMemory: appDefaults.memory,
     }));
 
-    // Silently reuse existing GitHub installation if available — never block wizard
+    // Reuse existing GitHub installation if available (user already installed the app)
     const { data: existingInstall } = await supabase
       .from("projects")
       .select("github_installation_id")
@@ -1046,11 +1046,16 @@ function NewProjectPageInner() {
         .from("projects")
         .update({ github_installation_id: existingInstall.github_installation_id })
         .eq("id", project.id);
+      // Already installed — go straight to Step 2
+      setProjectId(project.id);
+      setStep(2);
+    } else {
+      // First time — redirect to GitHub App installation.
+      // GitHub will redirect back to /api/github/callback?state=<projectId>
+      // which saves installation_id then redirects back to step=2.
+      setProjectId(project.id);
+      window.location.href = `/api/github/connect?projectId=${project.id}`;
     }
-
-    // Always proceed to Step 2 — GitHub connection never blocks infra deployment
-    setProjectId(project.id);
-    setStep(2);
   }, [stepOneData, stepTwoData.externalId]);
 
   const meta = STEP_META[step - 1];
