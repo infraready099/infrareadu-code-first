@@ -68,10 +68,8 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Redirect to GitHub App installation.
-  // Using /installations/new/permissions forces GitHub to call our callback
-  // even when the app is already installed (re-authorization flow).
-  const installUrl = new URL(`https://github.com/apps/${appSlug}/installations/new/permissions`);
+  // Redirect to GitHub App installation
+  const installUrl = new URL(`https://github.com/apps/${appSlug}/installations/new`);
   installUrl.searchParams.set("state", projectId);
 
   return NextResponse.redirect(installUrl.toString());
