@@ -93,16 +93,20 @@ const steps = [
 
 // ─── Logo marquee items ───────────────────────────────────────────────────────
 const marqueeItems = [
+  "Lovable",
+  "Bolt.new",
+  "Cursor",
   "AWS",
   "GitHub",
   "OpenTofu",
   "Terraform",
-  "Cursor",
   "Claude AI",
   "Supabase",
   "Vercel",
   "Docker",
   "Kubernetes",
+  "Replit",
+  "v0 by Vercel",
 ];
 
 // ─── Free tier features ───────────────────────────────────────────────────────
@@ -121,6 +125,36 @@ const featuredTemplates = [
   { id: "ghost",    name: "Ghost",               icon: "👻", color: "bg-green-500",  desc: "Blog & newsletter platform", awsCost: 20, saasCost: 36,  savings: 44 },
   { id: "plausible",name: "Plausible Analytics", icon: "📊", color: "bg-blue-500",   desc: "Privacy-friendly analytics", awsCost: 15, saasCost: 19,  savings: 21 },
   { id: "metabase", name: "Metabase",            icon: "📈", color: "bg-blue-600",   desc: "Business intelligence",      awsCost: 20, saasCost: 500, savings: 96 },
+];
+
+// ─── AI Builder platforms ─────────────────────────────────────────────────────
+const aiBuilders = [
+  { name: "Lovable", badge: "8M users", color: "#FF6B6B", exports: "React + Vite → GitHub" },
+  { name: "Bolt.new", badge: "5M signups", color: "#F59E0B", exports: "React / Node → ZIP" },
+  { name: "Cursor", badge: "2M paying", color: "#00E5FF", exports: "Any language → GitHub" },
+  { name: "Replit", badge: "35M registered", color: "#F97316", exports: "Any language → ZIP" },
+  { name: "v0 by Vercel", badge: "6M devs", color: "#8B5CF6", exports: "Next.js → GitHub" },
+];
+
+const lovableSteps = [
+  {
+    num: "01",
+    title: "Export from your AI builder",
+    desc: "In Lovable: click GitHub → Push to repo. In Bolt: click Export → Download ZIP then push to GitHub. Cursor users already have a local repo — just push it.",
+    code: "# Lovable auto-syncs every save. For Bolt:\ngit init && git add . && git push origin main",
+  },
+  {
+    num: "02",
+    title: "Connect GitHub + AWS to InfraReady",
+    desc: "Paste your GitHub repo URL. Run our one-time CloudFormation stack in your AWS account (takes 2 min). We get a scoped IAM role — you keep full control.",
+    code: "# One CloudFormation command in your AWS console\n# Stack URL: s3://infraready-public/bootstrap-role.yaml",
+  },
+  {
+    num: "03",
+    title: "Deploy — your app is live on AWS",
+    desc: "InfraReady provisions VPC, ECS, and a CI/CD pipeline. Every git push after this automatically rebuilds and redeploys your app. Zero DevOps.",
+    code: "✓ VPC created\n✓ ECS cluster ready\n✓ Deploy pipeline wired to your GitHub\n✓ App live at your domain",
+  },
 ];
 
 // ─── Pain points ─────────────────────────────────────────────────────────────
@@ -378,6 +412,157 @@ export default async function LandingPage() {
                 ))}
               </ul>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ════════════════════════════════════════════════════════
+          AI BUILDER ESCAPE HATCH
+      ════════════════════════════════════════════════════════ */}
+      <section
+        id="ai-builders"
+        className="py-28 px-6"
+        style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}
+      >
+        <div className="max-w-[1100px] mx-auto">
+          {/* Header */}
+          <div className="max-w-[680px] mb-16">
+            <p className="text-xs font-semibold uppercase tracking-widest mb-4" style={{ color: "#00E5FF" }}>
+              For AI builder users
+            </p>
+            <h2
+              className="font-bold text-white mb-5"
+              style={{ fontSize: "clamp(28px, 3.5vw, 48px)", letterSpacing: "-0.03em", lineHeight: 1.1 }}
+            >
+              Built with Lovable, Bolt, or Cursor?
+              <br />
+              <span style={{
+                background: "linear-gradient(135deg, #00E5FF 0%, #0EA5E9 100%)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
+              }}>
+                Deploy it to your own AWS.
+              </span>
+            </h2>
+            <p className="text-base leading-relaxed mb-8" style={{ color: "#94A3B8" }}>
+              Every major AI builder exports code to GitHub. InfraReady takes it from there — deploying your app to <strong className="text-white">your</strong> AWS account with production-grade infrastructure in 20 minutes. No DevOps. No Kubernetes. You own everything.
+            </p>
+
+            {/* Platform pills */}
+            <div className="flex flex-wrap gap-2.5">
+              {aiBuilders.map((b) => (
+                <div
+                  key={b.name}
+                  className="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    color: "#CBD5E1",
+                  }}
+                >
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ background: b.color, boxShadow: `0 0 6px ${b.color}` }}
+                  />
+                  <span className="text-white font-bold">{b.name}</span>
+                  <span style={{ color: "#475569" }}>{b.badge}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Callout — Lovable feature request */}
+          <div
+            className="flex items-start gap-4 p-5 rounded-2xl mb-14 max-w-2xl"
+            style={{
+              background: "rgba(255, 107, 107, 0.05)",
+              border: "1px solid rgba(255, 107, 107, 0.15)",
+            }}
+          >
+            <div
+              className="shrink-0 flex items-center justify-center w-8 h-8 rounded-lg text-sm font-bold"
+              style={{ background: "rgba(255,107,107,0.15)", color: "#FF6B6B" }}
+            >
+              !
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-white mb-1">
+                Lovable users: AWS deploy is the #1 requested feature — and InfraReady already ships it.
+              </p>
+              <p className="text-xs leading-relaxed" style={{ color: "#64748B" }}>
+                There&apos;s an open feature request on Lovable&apos;s feedback portal titled &quot;AWS automatic deployment integration&quot; with 30+ upvotes, status &quot;In Review.&quot; Lovable hasn&apos;t built it. InfraReady has.
+              </p>
+            </div>
+          </div>
+
+          {/* Step-by-step instructions */}
+          <div className="mb-10">
+            <p className="text-xs font-semibold uppercase tracking-widest mb-8" style={{ color: "#475569" }}>
+              How to deploy your Lovable / Bolt / Cursor app to AWS
+            </p>
+            <div className="grid md:grid-cols-3 gap-6">
+              {lovableSteps.map((step) => (
+                <div
+                  key={step.num}
+                  className="rounded-2xl overflow-hidden"
+                  style={{
+                    background: "rgba(255,255,255,0.025)",
+                    border: "1px solid rgba(255,255,255,0.06)",
+                  }}
+                >
+                  {/* Step header */}
+                  <div
+                    className="px-5 py-4 flex items-center gap-3"
+                    style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+                  >
+                    <span
+                      className="text-xs font-black"
+                      style={{ color: "rgba(0,229,255,0.4)", letterSpacing: "-0.04em" }}
+                    >
+                      {step.num}
+                    </span>
+                    <h3 className="text-sm font-bold text-white">{step.title}</h3>
+                  </div>
+                  {/* Body */}
+                  <div className="p-5">
+                    <p className="text-xs leading-relaxed mb-4" style={{ color: "#94A3B8" }}>
+                      {step.desc}
+                    </p>
+                    {/* Code snippet */}
+                    <div
+                      className="rounded-lg p-3 font-mono text-[11px] leading-relaxed whitespace-pre"
+                      style={{
+                        background: "rgba(0,0,0,0.4)",
+                        border: "1px solid rgba(0,229,255,0.08)",
+                        color: "#10B981",
+                        overflowX: "auto",
+                      }}
+                    >
+                      {step.code}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* CTA */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <Link
+              href="/login"
+              className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl font-bold text-sm text-black transition-all duration-200"
+              style={{
+                background: "#00E5FF",
+                boxShadow: "0 0 30px rgba(0,229,255,0.45)",
+              }}
+            >
+              <Rocket size={16} />
+              Deploy my Lovable app
+            </Link>
+            <p className="text-xs" style={{ color: "#475569" }}>
+              Free forever for 1 environment &middot; No credit card &middot; Your AWS account
+            </p>
           </div>
         </div>
       </section>
