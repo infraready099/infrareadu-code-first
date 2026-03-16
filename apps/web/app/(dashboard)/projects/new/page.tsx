@@ -1016,6 +1016,10 @@ function NewProjectPageInner() {
   }, [searchParams]);
 
   const handleStepOneContinue = useCallback(async () => {
+    // Clear any stale projectId from a previous session before creating a new project
+    sessionStorage.removeItem("wizard_project_id");
+    setProjectId("");
+
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("You must be logged in.");
