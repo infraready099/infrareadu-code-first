@@ -772,12 +772,19 @@ function StepThree({
         authHeaders["Authorization"] = `Bearer ${session.access_token}`;
       }
 
+      // DEBUG — remove after confirming fix
+      console.log("[deploy] projectId:", projectId, "| session:", session?.user?.id ?? "NO SESSION");
+
       const res  = await fetch("/api/deploy", {
         method:  "POST",
         headers: authHeaders,
         body:    JSON.stringify({ projectId, modules, config }),
       });
       const json = await res.json() as { deploymentId?: string; error?: string };
+
+      // DEBUG — remove after confirming fix
+      console.log("[deploy] response:", res.status, json);
+
       if (!res.ok || !json.deploymentId) {
         setDeployError(json.error ?? "Failed to queue deployment.");
         return;
@@ -795,6 +802,11 @@ function StepThree({
 
   return (
     <div className="space-y-6">
+      {/* DEBUG — remove after confirming fix */}
+      <div className="px-3 py-2 rounded bg-yellow-500/10 border border-yellow-500/20 text-xs font-mono text-yellow-400 break-all">
+        project: {projectId || "EMPTY ⚠️"}
+      </div>
+
       {/* AWS account badge */}
       <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-400">
         <CheckCircle2 className="w-4 h-4 shrink-0" />
