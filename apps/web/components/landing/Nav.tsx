@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Zap } from "lucide-react";
 
 interface NavProps {
@@ -8,6 +9,8 @@ interface NavProps {
 }
 
 export function Nav({ isAuthenticated }: NavProps) {
+  const pathname = usePathname();
+  const isLanding = pathname === "/";
   return (
     <header
       className="fixed top-4 left-0 right-0 z-50 flex justify-center px-4"
@@ -42,7 +45,7 @@ export function Nav({ isAuthenticated }: NavProps) {
 
         {/* Nav links */}
         <div className="hidden md:flex items-center gap-6">
-          {[
+          {isLanding && [
             { label: "Features", href: "#features" },
             { label: "How it works", href: "#how-it-works" },
             { label: "Pricing", href: "#free-tier" },
@@ -55,6 +58,13 @@ export function Nav({ isAuthenticated }: NavProps) {
               {link.label}
             </a>
           ))}
+          <Link
+            href="/templates"
+            className="text-sm transition-colors duration-150"
+            style={{ color: pathname === "/templates" ? "#00E5FF" : "#94A3B8" }}
+          >
+            Templates
+          </Link>
         </div>
 
         {/* Right actions */}

@@ -3,10 +3,12 @@ import { createServerClient } from "@/lib/supabase/server";
 import { createClient } from "@supabase/supabase-js";
 import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import { z } from "zod";
+import { getTemplate } from "@/lib/app-templates";
 
 const deploySchema = z.object({
   projectId: z.string().uuid(),
-  modules: z.array(z.enum(["vpc", "rds", "ecs", "storage", "security"])).min(1),
+  // modules is optional when using a template — the runner derives it from the template
+  modules: z.array(z.enum(["vpc", "rds", "ecs", "storage", "security"])).min(1).optional(),
   config: z.object({
     aws_region:       z.string().default("us-east-1"),
     environment:      z.enum(["production", "staging", "development"]).default("production"),
@@ -75,13 +77,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid request", details: parsed.error.format() }, { status: 400 });
   }
 
-  const { projectId, modules, config } = parsed.data;
+  const { projectId, modules: requestedModules, config } = parsed.data;
 
   // Use admin client (service role) to fetch project — bypasses RLS.
   // We manually verify ownership below.
   const { data: project } = await adminClient
     .from("projects")
-    .select("id, name, aws_role_arn, aws_external_id, aws_region, aws_account_id, repo_url, github_installation_id, user_id")
+    .select("id, name, aws_role_arn, aws_external_id, aws_region, aws_account_id, repo_url, github_installation_id, user_id, app_template_id, template_config")
     .eq("id", projectId)
     .single();
 
@@ -95,6 +97,37 @@ export async function POST(req: NextRequest) {
 
   if (!project.aws_role_arn) {
     return NextResponse.json({ error: "AWS account not connected. Please connect your AWS account first." }, { status: 400 });
+  }
+
+  // ── Resolve modules ────────────────────────────────────────────────────────
+  // For template projects: derive modules from the template registry.
+  // For repo projects: use the caller-provided modules list.
+  let modules: string[];
+
+  if (project.app_template_id) {
+    const template = getTemplate(project.app_template_id);
+    if (!template) {
+      return NextResponse.json(
+        { error: `Unknown app template "${project.app_template_id}". The template registry may have been updated.` },
+        { status: 400 }
+      );
+    }
+    // Mirrors the module resolution logic in the runner so the DB record is consistent.
+    const derived: string[] = ["vpc"];
+    if (template.requiresDatabase) derived.push("rds");
+    derived.push("ecs");
+    if (template.requiresStorage) derived.push("storage");
+    derived.push("security");
+    modules = derived;
+  } else {
+    // Standard repo-based deploy — modules must be provided by caller.
+    if (!requestedModules || requestedModules.length === 0) {
+      return NextResponse.json(
+        { error: "modules is required for non-template projects." },
+        { status: 400 }
+      );
+    }
+    modules = requestedModules;
   }
 
   // Create deployment record
@@ -151,6 +184,14 @@ export async function POST(req: NextRequest) {
     githubRepoOwner,
     githubRepoName,
     githubInstallationId:   project.github_installation_id ?? undefined,
+    // Template fields — only present for template projects
+    ...(project.app_template_id ? {
+      appTemplateId:  project.app_template_id,
+      // template_config is JSONB in Postgres — cast to Record<string, string>
+      // Non-secret values only; the runner reads secret values from job.templateConfig
+      // and routes them to Secrets Manager before injecting into ECS.
+      templateConfig: (project.template_config ?? {}) as Record<string, string>,
+    } : {}),
   };
 
   if (process.env.DEPLOY_QUEUE_URL) {

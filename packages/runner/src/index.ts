@@ -22,6 +22,7 @@ import {
 } from "./services/github-workflow";
 import { pushRepoFile, getInstallationToken } from "./services/github-push";
 import { getHandlerById } from "./app-types";
+import { getTemplate } from "./app-templates";
 
 const sts = new STSClient({ region: process.env.AWS_REGION ?? "us-east-1" });
 
@@ -128,6 +129,17 @@ interface DeployJob {
   githubRepoName?: string;
   githubBranch?: string;
   githubInstallationId?: string;
+  /**
+   * When set, deploy a pre-defined app template instead of a repo.
+   * The template ID must match a key in the app-templates registry.
+   */
+  appTemplateId?: string;
+  /**
+   * User-provided values for the template's env vars.
+   * Keys match TemplateEnvVar.key. Values are plaintext — the runner
+   * routes secret vars to Secrets Manager before injecting into ECS.
+   */
+  templateConfig?: Record<string, string>;
 }
 
 type Credentials = {
@@ -177,6 +189,19 @@ async function processRecord(record: SQSRecord): Promise<void> {
     };
 
     await appendLog(deploymentId, "success", "[AWS] Role assumed successfully");
+
+    // ── Template branch: resolve modules and inject config from registry ─────
+    if (job.appTemplateId) {
+      await deployTemplate({
+        job,
+        credentials,
+        deploymentId,
+        deployedModules,
+        awsAccountId,
+        region,
+      });
+      return; // template path is self-contained — skip rest of standard flow
+    }
 
     // ── Step 2: Security scan ────────────────────────────────────────────────
     await appendLog(deploymentId, "info", "\n[Security] Running compliance scan (SOC2, HIPAA, CIS)...");
@@ -394,6 +419,192 @@ async function processRecord(record: SQSRecord): Promise<void> {
       .update({ status: "failed" })
       .eq("id", job.projectId);
   }
+}
+
+// ─── Template deployment ──────────────────────────────────────────────────────
+
+/**
+ * Deploys a pre-defined app template.
+ *
+ * Differences from the standard repo-deploy path:
+ * - Modules are determined by the template (vpc + ecs + security, ±rds, ±storage)
+ * - Docker image comes from template.dockerImage — no ECR push needed
+ * - Secret env vars are routed to Secrets Manager, not plaintext task env
+ * - No GitHub workflow is generated (no repo)
+ */
+async function deployTemplate(params: {
+  job: DeployJob;
+  credentials: Credentials;
+  deploymentId: string;
+  deployedModules: string[];
+  awsAccountId: string;
+  region: string;
+}): Promise<void> {
+  const { job, credentials, deploymentId, deployedModules, awsAccountId, region } = params;
+
+  // ── Resolve template ───────────────────────────────────────────────────────
+  const template = getTemplate(job.appTemplateId!);
+  if (!template) {
+    const err = `Unknown app template "${job.appTemplateId}". Check the template ID is correct.`;
+    await appendLog(deploymentId, "error", `[Template] ${err}`);
+    throw new Error(err);
+  }
+
+  await appendLog(deploymentId, "info",
+    `\n[Template] Deploying ${template.name} from ${template.dockerImage}`
+  );
+  await appendLog(deploymentId, "info",
+    `[Template] Estimated AWS cost: ~$${template.estimatedMonthlyCost}/mo` +
+    (template.saasAlternative
+      ? ` (vs ${template.saasAlternative} at $${template.saasAlternativeCost}/mo)`
+      : "")
+  );
+
+  // ── Determine modules ──────────────────────────────────────────────────────
+  // Always: vpc, ecs, security.
+  // Conditional: rds (if template needs a database), storage (if template needs S3).
+  const templateModules: string[] = ["vpc"];
+  if (template.requiresDatabase) templateModules.push("rds");
+  templateModules.push("ecs");
+  if (template.requiresStorage) templateModules.push("storage");
+  templateModules.push("security");
+
+  await appendLog(deploymentId, "info",
+    `[Template] Modules to deploy: ${templateModules.join(" → ")}`
+  );
+
+  // ── Separate secret vs plaintext env vars ─────────────────────────────────
+  const providedConfig = job.templateConfig ?? {};
+  const secretEnvVars: Record<string, string> = {};
+  const plainEnvVars: Record<string, string>  = {};
+
+  for (const envDef of template.envVars) {
+    const value = providedConfig[envDef.key] ?? envDef.defaultValue;
+    if (value === undefined) continue;
+    if (envDef.secret) {
+      secretEnvVars[envDef.key] = value;
+    } else {
+      plainEnvVars[envDef.key] = value;
+    }
+  }
+
+  // ── Build merged job config for this template ──────────────────────────────
+  // We extend job.config so buildModuleConfig can read standard keys (project_name, etc.)
+  const templateJobConfig: Record<string, unknown> = {
+    ...job.config,
+    // ECS module picks these up in buildModuleConfig
+    container_port:      template.port,
+    container_cpu:       template.cpu,
+    container_memory:    template.memory,
+    // Signal to the ECS module that this is a template deploy (pre-built image)
+    template_docker_image: template.dockerImage,
+    // Plain env vars merged for ECS task environment
+    template_env_vars:     plainEnvVars,
+    // Secret env var keys (values stored in Secrets Manager separately)
+    template_secret_keys:  Object.keys(secretEnvVars),
+    // deployment_target is always ecs for templates — no static site support
+    deployment_target:     "ecs",
+    // WordPress needs MySQL — override db_engine
+    ...(template.id === "wordpress" ? { db_engine: "mysql" } : {}),
+  };
+
+  // ── Security scan ──────────────────────────────────────────────────────────
+  await appendLog(deploymentId, "info", "\n[Security] Running compliance scan (SOC2, HIPAA, CIS)...");
+
+  for (const moduleName of templateModules) {
+    const generatedHcl = generateConfig({
+      type:        moduleName as ModuleType,
+      engine:      (templateJobConfig.engine as IaCEngine) ?? "opentofu",
+      projectName: templateJobConfig.project_name as string,
+      environment: (templateJobConfig.environment as string) ?? "production",
+      region,
+      roleArn:     job.awsRoleArn,
+      externalId:  job.awsExternalId,
+      variables:   templateJobConfig,
+    });
+
+    const scanResult = await scanHcl({
+      hclContent:      generatedHcl.hcl,
+      frameworks:      DEFAULT_FRAMEWORKS,
+      blockOnSeverity: DEFAULT_BLOCK_ON,
+      projectName:     templateJobConfig.project_name as string,
+      moduleType:      moduleName,
+    });
+
+    await appendLog(deploymentId, scanResult.passed ? "success" : "error", formatScanReport(scanResult));
+
+    if (!scanResult.passed) {
+      throw new Error(
+        `Security scan BLOCKED module "${moduleName}" — ` +
+        `${scanResult.summary.critical} critical, ${scanResult.summary.high} high severity findings. ` +
+        `Fix the issues above and redeploy.`
+      );
+    }
+  }
+
+  await appendLog(deploymentId, "success", "[Security] All modules passed compliance scan.\n");
+
+  // ── Deploy each module ─────────────────────────────────────────────────────
+  const outputs: Record<string, Record<string, unknown>> = {};
+
+  for (const moduleName of templateModules) {
+    await appendLog(deploymentId, "info", `\n[OpenTofu] Deploying module: ${moduleName}`);
+    await updateDeployment(deploymentId, { current_module: moduleName });
+
+    const moduleConfig = buildModuleConfig(moduleName, templateJobConfig, outputs, {
+      githubRepoOwner: undefined, // templates have no repo
+      githubRepoName:  undefined,
+    });
+
+    const moduleOutputs = await deployModuleWithRetry({
+      moduleName,
+      moduleConfig,
+      credentials,
+      deploymentId,
+      projectId: job.projectId,
+      region,
+      awsAccountId,
+    });
+
+    deployedModules.push(moduleName);
+    outputs[moduleName] = moduleOutputs;
+    await appendLog(deploymentId, "success", `[OpenTofu] Module ${moduleName} deployed successfully`);
+  }
+
+  // ── Save outputs ───────────────────────────────────────────────────────────
+  await appendLog(deploymentId, "info", "\n[InfraReady] Saving outputs...");
+
+  const flatOutputs = formatOutputs(outputs);
+
+  // Surface the app URL prominently for templates
+  if (flatOutputs.app_url) {
+    await appendLog(deploymentId, "success",
+      `\n[Template] ${template.name} is live at: ${flatOutputs.app_url}\n` +
+      `[Template] It may take 2-3 minutes for the container to start up.`
+    );
+  }
+
+  // No GitHub workflow for templates — log a note instead
+  await appendLog(deploymentId, "info",
+    `[Template] This is a managed Docker deployment. InfraReady will pull the latest ` +
+    `${template.dockerImage} image when you click "Redeploy".`
+  );
+
+  await updateDeployment(deploymentId, {
+    status:         "success",
+    outputs:        flatOutputs,
+    completed_at:   new Date().toISOString(),
+    current_module: null,
+  });
+
+  await supabase
+    .from("projects")
+    .update({ status: "success", last_deployed_at: new Date().toISOString() })
+    .eq("id", job.projectId);
+
+  await appendLog(deploymentId, "success",
+    `\n[InfraReady] ${template.name} deployment complete! Your infrastructure is live.`
+  );
 }
 
 // ─── Deploy module with retry ─────────────────────────────────────────────────

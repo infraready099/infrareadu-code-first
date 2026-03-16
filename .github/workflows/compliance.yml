@@ -42,6 +42,7 @@ jobs:
           - macie
           - app-runner
           - aurora-serverless
+          - codebuild
 
 
     steps:

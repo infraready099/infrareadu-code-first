@@ -2,7 +2,7 @@ import Link from "next/link";
 import { createServerClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
-import { LayoutDashboard, Layers, Settings, LogOut, Zap } from "lucide-react";
+import { LayoutDashboard, Layers, Settings, LogOut, Zap, Store } from "lucide-react";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createServerClient();
@@ -57,6 +57,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         {/* Navigation */}
         <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
           <NavItem href="/projects"    icon={<LayoutDashboard className="w-4 h-4" />} label="Projects" />
+          <NavItem href="/templates"   icon={<Store className="w-4 h-4" />}            label="App Marketplace" />
           <NavItem href="/deployments" icon={<Layers className="w-4 h-4" />}          label="Deployments" />
           <NavItem href="/settings"    icon={<Settings className="w-4 h-4" />}         label="Settings" />
         </nav>

@@ -8,13 +8,16 @@ import {
   CreditCard,
   Check,
   ArrowRight,
+  ChevronRight,
   X,
+  TrendingDown,
 } from "lucide-react";
 import { createServerClient } from "@/lib/supabase/server";
 import { Nav } from "@/components/landing/Nav";
 import { WaitlistForm } from "@/components/landing/WaitlistForm";
 import { HeroBackground } from "@/components/landing/HeroBackground";
 import { TiltCard } from "@/components/landing/TiltCard";
+import { CostCalculator } from "@/components/CostCalculator";
 
 // ─── Auth check (server) ─────────────────────────────────────────────────────
 async function getUser() {
@@ -110,6 +113,14 @@ const freeTierFeatures = [
   "OpenTofu export",
   "SOC2-ready baseline",
   "No credit card required",
+];
+
+// ─── Featured templates (for landing page preview) ───────────────────────────
+const featuredTemplates = [
+  { id: "n8n",      name: "n8n",                icon: "⚡", color: "bg-orange-500", desc: "Workflow automation",        awsCost: 24, saasCost: 50,  savings: 52 },
+  { id: "ghost",    name: "Ghost",               icon: "👻", color: "bg-green-500",  desc: "Blog & newsletter platform", awsCost: 20, saasCost: 36,  savings: 44 },
+  { id: "plausible",name: "Plausible Analytics", icon: "📊", color: "bg-blue-500",   desc: "Privacy-friendly analytics", awsCost: 15, saasCost: 19,  savings: 21 },
+  { id: "metabase", name: "Metabase",            icon: "📈", color: "bg-blue-600",   desc: "Business intelligence",      awsCost: 20, saasCost: 500, savings: 96 },
 ];
 
 // ─── Pain points ─────────────────────────────────────────────────────────────
@@ -499,6 +510,132 @@ export default async function LandingPage() {
 
           {/* Terminal mockup */}
           <HeroTerminal wide />
+        </div>
+      </section>
+
+      {/* ════════════════════════════════════════════════════════
+          TEMPLATE MARKETPLACE PREVIEW
+      ════════════════════════════════════════════════════════ */}
+      <section
+        id="marketplace"
+        className="py-28 px-6"
+        style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}
+      >
+        <div className="max-w-[1100px] mx-auto">
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-14">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest mb-4" style={{ color: "#00E5FF" }}>
+                App Marketplace
+              </p>
+              <h2
+                className="font-bold text-white"
+                style={{ fontSize: "clamp(28px, 3.5vw, 48px)", letterSpacing: "-0.03em", lineHeight: 1.1 }}
+              >
+                Deploy popular apps.
+                <br />
+                No DevOps required.
+              </h2>
+              <p className="mt-4 max-w-sm" style={{ color: "#94A3B8", fontSize: "16px", lineHeight: "1.6" }}>
+                One-click deployment for open-source tools you already use — on your AWS, at a fraction of the SaaS price.
+              </p>
+            </div>
+            <Link
+              href="/templates"
+              className="inline-flex items-center gap-2 text-sm font-semibold shrink-0 transition-colors duration-150 hover:text-white"
+              style={{ color: "#00E5FF" }}
+            >
+              View all templates
+              <ArrowRight size={14} />
+            </Link>
+          </div>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {featuredTemplates.map((t) => (
+              <Link
+                key={t.id}
+                href="/templates"
+                className="group rounded-2xl p-5 flex flex-col gap-4 transition-all duration-200"
+                style={{
+                  background: "rgba(255,255,255,0.025)",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                  textDecoration: "none",
+                }}
+              >
+                {/* Icon */}
+                <div className="flex items-start justify-between">
+                  <div
+                    className={`w-11 h-11 ${t.color} rounded-xl flex items-center justify-center text-xl`}
+                    style={{ boxShadow: "0 0 16px rgba(0,0,0,0.3)" }}
+                  >
+                    {t.icon}
+                  </div>
+                  {t.savings > 0 && (
+                    <div
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold"
+                      style={{
+                        background: "rgba(16,185,129,0.12)",
+                        border: "1px solid rgba(16,185,129,0.25)",
+                        color: "#10B981",
+                      }}
+                    >
+                      <TrendingDown size={10} />
+                      -{t.savings}%
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-bold text-white leading-tight">{t.name}</h3>
+                  <p className="text-xs mt-1" style={{ color: "#64748B" }}>{t.desc}</p>
+                </div>
+
+                <div className="mt-auto">
+                  <span className="text-base font-bold text-white">~${t.awsCost}</span>
+                  <span className="text-xs ml-1" style={{ color: "#475569" }}>/mo on AWS</span>
+                  <p className="text-xs mt-0.5 line-through" style={{ color: "#334155" }}>
+                    ${t.saasCost}/mo SaaS
+                  </p>
+                </div>
+
+                <div
+                  className="flex items-center gap-1 text-xs font-semibold transition-colors duration-150"
+                  style={{ color: "#475569" }}
+                >
+                  Deploy Now
+                  <ChevronRight size={12} className="transition-transform duration-150 group-hover:translate-x-0.5" />
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ════════════════════════════════════════════════════════
+          COST CALCULATOR
+      ════════════════════════════════════════════════════════ */}
+      <section
+        id="savings"
+        className="py-28 px-6"
+        style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}
+      >
+        <div className="max-w-[1100px] mx-auto">
+          <div className="text-center mb-12">
+            <p className="text-xs font-semibold uppercase tracking-widest mb-4" style={{ color: "#00E5FF" }}>
+              The math
+            </p>
+            <h2
+              className="font-bold text-white"
+              style={{ fontSize: "clamp(28px, 3.5vw, 48px)", letterSpacing: "-0.03em", lineHeight: 1.1 }}
+            >
+              How much are you
+              <br />
+              leaving on the table?
+            </h2>
+            <p className="mt-4 text-base max-w-md mx-auto" style={{ color: "#94A3B8", lineHeight: "1.6" }}>
+              Check the tools you pay for. See your AWS equivalent — instantly.
+            </p>
+          </div>
+          <CostCalculator />
         </div>
       </section>
 

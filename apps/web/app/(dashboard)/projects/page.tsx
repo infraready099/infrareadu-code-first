@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createServerClient } from "@/lib/supabase/server";
-import { Plus, GitBranch, Clock, CheckCircle, AlertCircle, Loader2, ChevronRight } from "lucide-react";
+import { Plus, GitBranch, Clock, CheckCircle, AlertCircle, Loader2, ChevronRight, Store } from "lucide-react";
 
 export const metadata = { title: "Projects — InfraReady" };
 
@@ -63,17 +63,31 @@ export default async function ProjectsPage() {
           </p>
         </div>
 
-        <Link
-          href="/projects/new"
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-all duration-150"
-          style={{
-            background: "#f97316",
-            boxShadow: "0 0 20px rgba(249,115,22,0.25)",
-          }}
-        >
-          <Plus className="w-4 h-4" />
-          New Project
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/templates"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-150"
+            style={{
+              background: "rgba(0,229,255,0.08)",
+              border: "1px solid rgba(0,229,255,0.2)",
+              color: "#00E5FF",
+            }}
+          >
+            <Store className="w-4 h-4" />
+            Deploy an App
+          </Link>
+          <Link
+            href="/projects/new"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-all duration-150"
+            style={{
+              background: "#f97316",
+              boxShadow: "0 0 20px rgba(249,115,22,0.25)",
+            }}
+          >
+            <Plus className="w-4 h-4" />
+            New Project
+          </Link>
+        </div>
       </div>
 
       {/* Empty state */}
@@ -106,17 +120,31 @@ export default async function ProjectsPage() {
             Connect your GitHub repo and we&apos;ll deploy your entire AWS infrastructure in under 20 minutes. No DevOps required.
           </p>
 
-          <Link
-            href="/projects/new"
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all duration-150"
-            style={{
-              background: "#f97316",
-              boxShadow: "0 0 24px rgba(249,115,22,0.3)",
-            }}
-          >
-            <Plus className="w-4 h-4" />
-            Create your first project
-          </Link>
+          <div className="flex flex-col sm:flex-row items-center gap-3">
+            <Link
+              href="/templates"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150"
+              style={{
+                background: "rgba(0,229,255,0.08)",
+                border: "1px solid rgba(0,229,255,0.2)",
+                color: "#00E5FF",
+              }}
+            >
+              <Store className="w-4 h-4" />
+              Browse App Marketplace
+            </Link>
+            <Link
+              href="/projects/new"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all duration-150"
+              style={{
+                background: "#f97316",
+                boxShadow: "0 0 24px rgba(249,115,22,0.3)",
+              }}
+            >
+              <Plus className="w-4 h-4" />
+              Deploy a custom repo
+            </Link>
+          </div>
         </div>
       )}
 
