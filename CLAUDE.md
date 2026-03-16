@@ -102,7 +102,27 @@ Before implementing anything non-trivial, flag:
 - **Compliance:** Does this break a SOC2/HIPAA control? Block it.
 - **Strategic impact:** Does this lock us into a vendor or approach? Name it.
 
-### 4. Write to memory after significant work
+### 4. Code review gate — MANDATORY on every commit + push
+
+**After every `git push` to main, always run both agents in parallel (background):**
+
+```
+Agent 1 — principal-engineer: review ALL files changed in the last commit
+  - Check for bugs, security issues, type errors, React anti-patterns
+  - Report CRITICAL issues back immediately; apply fixes before next push
+
+Agent 2 — gstack: verify the live site at https://infraready.io
+  - Navigate to the page affected by the change
+  - Check for console errors, broken layout, mobile overflow
+  - Take a screenshot as evidence
+  - Report any visual regressions immediately
+```
+
+**Rule:** Never consider a task "done" until both agents have cleared it.
+If a CRITICAL issue is found, fix it and push again — agents re-run automatically.
+If Kay pushes manually (without agents running), trigger both at the start of the next session.
+
+### 5. Write to memory after significant work
 After every session with a meaningful outcome:
 - New mistakes → `memory/lessons-learned.md`
 - New decisions → `memory/decisions-log.md`
