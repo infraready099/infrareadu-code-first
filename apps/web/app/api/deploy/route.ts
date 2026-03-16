@@ -77,11 +77,15 @@ export async function POST(req: NextRequest) {
 
   // Use admin client (service role) to fetch project — bypasses RLS.
   // We manually verify ownership below.
-  const { data: project } = await adminClient
+  const { data: project, error: projectError } = await adminClient
     .from("projects")
     .select("id, name, aws_role_arn, aws_external_id, aws_region, aws_account_id, repo_url, github_installation_id, user_id, app_template_id, template_config")
     .eq("id", projectId)
     .single();
+
+  if (projectError) {
+    console.error(`[deploy] DB error fetching project: projectId=${projectId}`, projectError);
+  }
 
   if (!project) {
     console.error(`[deploy] Project not found: projectId=${projectId} userId=${userId}`);
