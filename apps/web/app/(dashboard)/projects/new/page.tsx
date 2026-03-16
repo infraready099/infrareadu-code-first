@@ -729,6 +729,12 @@ function StepThree({
 
   async function handleDeploy() {
     setDeployError("");
+
+    if (!projectId) {
+      setDeployError("Session lost — please go back to Step 1 and start again.");
+      return;
+    }
+
     setDeploying(true);
 
     const modules: string[] = ["vpc"];
@@ -776,6 +782,7 @@ function StepThree({
         setDeployError(json.error ?? "Failed to queue deployment.");
         return;
       }
+      sessionStorage.removeItem("wizard_project_id");
       router.push(`/projects/${projectId}`);
     } catch {
       setDeployError("Network error. Please try again.");
@@ -978,7 +985,9 @@ function NewProjectPageInner() {
   const searchParams = useSearchParams();
 
   const [step, setStep]           = useState<Step>(1);
-  const [projectId, setProjectId] = useState("");
+  const [projectId, setProjectId] = useState(() =>
+    typeof window !== "undefined" ? sessionStorage.getItem("wizard_project_id") ?? "" : ""
+  );
 
   const [stepOneData, setStepOneData] = useState<StepOneData>({
     repoUrl: "", projectName: "", appType: "nextjs",
@@ -1000,6 +1009,7 @@ function NewProjectPageInner() {
     const pid  = searchParams.get("projectId");
     const step = searchParams.get("step");
     if (pid && step === "2") {
+      sessionStorage.setItem("wizard_project_id", pid);
       setProjectId(pid);
       setStep(2);
     }
@@ -1047,12 +1057,14 @@ function NewProjectPageInner() {
         .update({ github_installation_id: existingInstall.github_installation_id })
         .eq("id", project.id);
       // Already installed — go straight to Step 2
+      sessionStorage.setItem("wizard_project_id", project.id);
       setProjectId(project.id);
       setStep(2);
     } else {
       // First time — redirect to GitHub App installation.
       // GitHub will redirect back to /api/github/callback?state=<projectId>
       // which saves installation_id then redirects back to step=2.
+      sessionStorage.setItem("wizard_project_id", project.id);
       setProjectId(project.id);
       window.location.href = `/api/github/connect?projectId=${project.id}`;
     }

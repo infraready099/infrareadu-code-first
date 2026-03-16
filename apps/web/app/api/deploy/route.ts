@@ -88,11 +88,13 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (!project) {
-    return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    console.error(`[deploy] Project not found: projectId=${projectId} userId=${userId}`);
+    return NextResponse.json({ error: "Project not found. Try starting a new project from the dashboard." }, { status: 404 });
   }
 
   if (project.user_id !== userId) {
-    return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    console.error(`[deploy] Ownership mismatch: project.user_id=${project.user_id} userId=${userId}`);
+    return NextResponse.json({ error: "Project not found. Try starting a new project from the dashboard." }, { status: 404 });
   }
 
   if (!project.aws_role_arn) {
