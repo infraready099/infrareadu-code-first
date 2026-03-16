@@ -782,8 +782,8 @@ function StepThree({
         setDeployError(json.error ?? "Failed to queue deployment.");
         return;
       }
-      sessionStorage.removeItem("wizard_project_id");
       router.push(`/projects/${projectId}`);
+      sessionStorage.removeItem("wizard_project_id");
     } catch {
       setDeployError("Network error. Please try again.");
     } finally {

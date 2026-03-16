@@ -329,7 +329,7 @@ export default async function LandingPage() {
           <div className="flex animate-marquee gap-8" style={{ width: "max-content" }}>
             {[...marqueeItems, ...marqueeItems].map((item, i) => (
               <span
-                key={i}
+                key={`${item}-${i}`}
                 className="px-4 py-1.5 rounded-lg text-xs font-semibold tracking-wide whitespace-nowrap select-none"
                 style={{
                   color: "#475569",
@@ -531,12 +531,13 @@ export default async function LandingPage() {
                     </p>
                     {/* Code snippet */}
                     <div
-                      className="rounded-lg p-3 font-mono text-[11px] leading-relaxed whitespace-pre"
+                      className="rounded-lg p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all"
                       style={{
                         background: "rgba(0,0,0,0.4)",
                         border: "1px solid rgba(0,229,255,0.08)",
                         color: "#10B981",
-                        overflowX: "auto",
+                        overflowX: "scroll",
+                        WebkitOverflowScrolling: "touch",
                       }}
                     >
                       {step.code}

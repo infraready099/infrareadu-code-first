@@ -8,7 +8,7 @@ import { getTemplate } from "@/lib/app-templates";
 const deploySchema = z.object({
   projectId: z.string().uuid(),
   // modules is optional when using a template — the runner derives it from the template
-  modules: z.array(z.enum(["vpc", "rds", "ecs", "storage", "security"])).min(1).optional(),
+  modules: z.array(z.enum(["vpc", "rds", "ecs", "storage", "security", "app-runner", "aurora-serverless"])).min(1).optional(),
   config: z.object({
     aws_region:       z.string().default("us-east-1"),
     environment:      z.enum(["production", "staging", "development"]).default("production"),
@@ -49,21 +49,17 @@ export async function POST(req: NextRequest) {
   let userId: string | undefined;
 
   if (bearerToken) {
-    // Validate token directly — no cookie dependency
-    const { data: { user } } = await adminClient.auth.getUser(bearerToken);
+    // Validate token against Supabase servers — no local trust
+    const { data: { user }, error: authError } = await adminClient.auth.getUser(bearerToken);
+    if (authError) console.error("[deploy] Bearer token validation failed:", authError.message);
     userId = user?.id;
   }
 
   if (!userId) {
-    // Cookie-based fallback
+    // Cookie-based fallback — always use getUser() (server-validated), never getSession()
     const supabase = await createServerClient();
     const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      userId = user.id;
-    } else {
-      const { data: { session } } = await supabase.auth.getSession();
-      userId = session?.user?.id;
-    }
+    userId = user?.id;
   }
 
   if (!userId) {
