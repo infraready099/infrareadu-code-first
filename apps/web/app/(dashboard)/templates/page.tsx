@@ -498,6 +498,85 @@ function DeployModal({ template, open, onClose }: DeployModalProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Your App Card — deploy Lovable / Bolt / Cursor app via wizard
+// ---------------------------------------------------------------------------
+
+function YourAppCard() {
+  const router = useRouter();
+  return (
+    <button
+      onClick={() => router.push("/projects/new")}
+      className="w-full text-left rounded-2xl p-5 flex flex-col gap-4 transition-all duration-200 cursor-pointer group"
+      style={{
+        background: "linear-gradient(135deg, rgba(0,229,255,0.07) 0%, rgba(14,165,233,0.04) 100%)",
+        border: "1px solid rgba(0,229,255,0.25)",
+        boxShadow: "0 0 30px rgba(0,229,255,0.06)",
+      }}
+    >
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div
+          className="w-11 h-11 rounded-xl flex items-center justify-center text-lg font-bold shrink-0"
+          style={{
+            background: "rgba(0,229,255,0.12)",
+            border: "1px solid rgba(0,229,255,0.25)",
+            color: "#00E5FF",
+          }}
+        >
+          {"</>"}
+        </div>
+        <div
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold"
+          style={{
+            background: "rgba(0,229,255,0.1)",
+            border: "1px solid rgba(0,229,255,0.2)",
+            color: "#00E5FF",
+          }}
+        >
+          Your App
+        </div>
+      </div>
+
+      {/* Name + desc */}
+      <div>
+        <h3 className="text-sm font-bold text-white leading-tight mb-1">
+          Lovable · Bolt · Cursor · Replit
+        </h3>
+        <p className="text-xs leading-relaxed" style={{ color: "#64748B" }}>
+          Deploy your own AI-built app to AWS. Connect your GitHub repo and we handle VPC, ECS, CI/CD — all in 20 minutes.
+        </p>
+      </div>
+
+      {/* Platform pills */}
+      <div className="flex flex-wrap gap-1.5">
+        {["Lovable", "Bolt.new", "Cursor", "Replit", "v0"].map((p) => (
+          <span
+            key={p}
+            className="px-2 py-0.5 rounded-md text-[10px] font-semibold"
+            style={{
+              background: "rgba(255,255,255,0.05)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              color: "#94A3B8",
+            }}
+          >
+            {p}
+          </span>
+        ))}
+      </div>
+
+      {/* CTA */}
+      <div
+        className="flex items-center gap-1.5 text-xs font-semibold mt-auto transition-colors duration-150"
+        style={{ color: "#00E5FF" }}
+      >
+        Deploy My App
+        <ChevronRight size={13} className="transition-transform duration-150 group-hover:translate-x-0.5" />
+      </div>
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Template Card
 // ---------------------------------------------------------------------------
 
@@ -752,6 +831,10 @@ export default function TemplatesPage() {
           ref={gridRef}
           className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
         >
+          {/* Your App card — always first, links to wizard */}
+          <div className="template-card sm:col-span-2 lg:col-span-1">
+            <YourAppCard />
+          </div>
           {filtered.map((t) => (
             <div key={t.id} className="template-card">
               <TemplateCard template={t} onDeploy={handleDeploy} />

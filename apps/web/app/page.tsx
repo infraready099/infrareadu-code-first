@@ -127,6 +127,8 @@ const featuredTemplates = [
   { id: "metabase", name: "Metabase",            icon: "📈", color: "bg-blue-600",   desc: "Business intelligence",      awsCost: 20, saasCost: 500, savings: 96 },
 ];
 
+// Your App card is rendered separately — always first in the marketplace grid
+
 // ─── AI Builder platforms ─────────────────────────────────────────────────────
 const aiBuilders = [
   { name: "Lovable", badge: "8M users", color: "#FF6B6B", exports: "React + Vite → GitHub" },
@@ -736,6 +738,47 @@ export default async function LandingPage() {
           </div>
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Your App card — always first */}
+            <Link
+              href="/login"
+              className="group rounded-2xl p-5 flex flex-col gap-3 transition-all duration-200"
+              style={{
+                background: "linear-gradient(135deg, rgba(0,229,255,0.07) 0%, rgba(14,165,233,0.04) 100%)",
+                border: "1px solid rgba(0,229,255,0.25)",
+                boxShadow: "0 0 24px rgba(0,229,255,0.06)",
+                textDecoration: "none",
+              }}
+            >
+              <div className="flex items-start justify-between">
+                <div
+                  className="w-11 h-11 rounded-xl flex items-center justify-center text-sm font-bold shrink-0"
+                  style={{ background: "rgba(0,229,255,0.12)", border: "1px solid rgba(0,229,255,0.25)", color: "#00E5FF" }}
+                >
+                  {"</>"}
+                </div>
+                <div
+                  className="px-2 py-0.5 rounded-full text-[10px] font-bold"
+                  style={{ background: "rgba(0,229,255,0.1)", border: "1px solid rgba(0,229,255,0.2)", color: "#00E5FF" }}
+                >
+                  Your App
+                </div>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white leading-tight">Lovable · Bolt · Cursor</h3>
+                <p className="text-xs mt-1" style={{ color: "#64748B" }}>Deploy your AI-built app to your own AWS</p>
+              </div>
+              <div className="mt-auto">
+                <p className="text-xs" style={{ color: "#475569" }}>Connect GitHub → deploy in 20 min</p>
+              </div>
+              <div
+                className="flex items-center gap-1 text-xs font-semibold transition-colors duration-150"
+                style={{ color: "#00E5FF" }}
+              >
+                Deploy My App
+                <ChevronRight size={12} className="transition-transform duration-150 group-hover:translate-x-0.5" />
+              </div>
+            </Link>
+
             {featuredTemplates.map((t) => (
               <Link
                 key={t.id}
