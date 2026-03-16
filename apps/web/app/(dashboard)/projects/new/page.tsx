@@ -1024,6 +1024,23 @@ function NewProjectPageInner() {
       sessionStorage.setItem("wizard_project_id", pid);
       setProjectId(pid);
       setStep(2);
+
+      // CRITICAL: fetch the actual aws_external_id stored in the DB for this project.
+      // The UI's stepTwoData.externalId was regenerated on remount (after GitHub redirect),
+      // so it no longer matches what was saved to the project row during Step 1.
+      // If we show the wrong ExternalId, the user launches CloudFormation with the wrong
+      // value → STS AssumeRole fails with "Access denied".
+      const supabase = createClient();
+      supabase
+        .from("projects")
+        .select("aws_external_id")
+        .eq("id", pid)
+        .single()
+        .then(({ data }) => {
+          if (data?.aws_external_id) {
+            setStepTwoData((d) => ({ ...d, externalId: data.aws_external_id }));
+          }
+        });
     }
   }, [searchParams]);
 
