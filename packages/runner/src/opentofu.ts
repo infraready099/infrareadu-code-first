@@ -56,8 +56,11 @@ function buildWorkDir(
   // Include account ID so each customer gets their own state bucket (S3 names are globally unique)
   const accountSegment = awsAccountId ?? String(config.project_name);
   const stateBucket = `infraready-state-${accountSegment}-${region}`;
-  const projectName = String(config.project_name ?? projectId);
-  writeFileSync(backendConfigPath, `bucket  = "${stateBucket}"\nkey     = "${projectName}/${module}/terraform.tfstate"\nregion  = "${region}"\nencrypt = true\n`);
+  // Use projectId (UUID) as the state key — NOT project_name.
+  // project_name is mutable and non-unique: if a project is deleted and recreated
+  // with the same name, it would otherwise share state with the old project, causing
+  // orphaned resource conflicts and confusing "different project information" errors.
+  writeFileSync(backendConfigPath, `bucket  = "${stateBucket}"\nkey     = "${projectId}/${module}/terraform.tfstate"\nregion  = "${region}"\nencrypt = true\n`);
 
   const providerCacheDir = join(tmpdir(), `infraready-providers-${projectId}`);
   mkdirSync(providerCacheDir, { recursive: true });

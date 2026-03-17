@@ -377,7 +377,7 @@ resource "aws_cloudwatch_event_target" "guardduty_sns" {
 # ─── AWS CONFIG — COMPLIANCE MONITORING ──────────────────────────────────────
 
 resource "aws_config_configuration_recorder" "this" {
-  count    = var.enable_config ? 1 : 0
+  count    = var.enable_config && var.create_config_recorder ? 1 : 0
   name     = "${local.name}-config-recorder"
   role_arn = aws_iam_role.config[0].arn
 
@@ -388,7 +388,7 @@ resource "aws_config_configuration_recorder" "this" {
 }
 
 resource "aws_config_delivery_channel" "this" {
-  count          = var.enable_config ? 1 : 0
+  count          = var.enable_config && var.create_config_recorder ? 1 : 0
   name           = "${local.name}-config-channel"
   s3_bucket_name = aws_s3_bucket.cloudtrail.id
   sns_topic_arn  = aws_sns_topic.alerts.arn
@@ -396,7 +396,7 @@ resource "aws_config_delivery_channel" "this" {
 }
 
 resource "aws_config_configuration_recorder_status" "this" {
-  count      = var.enable_config ? 1 : 0
+  count      = var.enable_config && var.create_config_recorder ? 1 : 0
   name       = aws_config_configuration_recorder.this[0].name
   is_enabled = true
   depends_on = [aws_config_delivery_channel.this]
@@ -753,8 +753,16 @@ resource "aws_cloudwatch_metric_alarm" "billing" {
 #   - IAM permissions split by deployment_target: ECS apps vs static sites
 #   - SOC2 CC6.1: no static credentials that can be leaked or need rotation
 
+# Look up an existing OIDC provider when create_github_oidc_provider = false.
+# AWS only allows one GitHub Actions OIDC provider per account — customers who
+# already have one must pass create_github_oidc_provider = false.
+data "aws_iam_openid_connect_provider" "github_actions_existing" {
+  count = var.enable_github_deploy_role && !var.create_github_oidc_provider ? 1 : 0
+  url   = "https://token.actions.githubusercontent.com"
+}
+
 resource "aws_iam_openid_connect_provider" "github_actions" {
-  count = var.enable_github_deploy_role ? 1 : 0
+  count = var.enable_github_deploy_role && var.create_github_oidc_provider ? 1 : 0
 
   url            = "https://token.actions.githubusercontent.com"
   client_id_list = ["sts.amazonaws.com"]
@@ -769,6 +777,16 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
   })
 }
 
+locals {
+  # Resolves to the OIDC provider ARN regardless of whether we created it or adopted existing.
+  # Null when enable_github_deploy_role = false.
+  github_oidc_provider_arn = var.enable_github_deploy_role ? (
+    var.create_github_oidc_provider
+      ? aws_iam_openid_connect_provider.github_actions[0].arn
+      : data.aws_iam_openid_connect_provider.github_actions_existing[0].arn
+  ) : null
+}
+
 resource "aws_iam_role" "github_deploy" {
   count = var.enable_github_deploy_role ? 1 : 0
   name  = "${local.name}-github-deploy"
@@ -780,7 +798,7 @@ resource "aws_iam_role" "github_deploy" {
         Sid    = "AllowGitHubOIDC"
         Effect = "Allow"
         Principal = {
-          Federated = aws_iam_openid_connect_provider.github_actions[0].arn
+          Federated = local.github_oidc_provider_arn
         }
         Action = "sts:AssumeRoleWithWebIdentity"
         Condition = {

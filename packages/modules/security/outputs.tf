@@ -39,6 +39,6 @@ output "github_deploy_role_arn" {
 }
 
 output "github_oidc_provider_arn" {
-  description = "ARN of the GitHub Actions OIDC provider."
-  value       = length(aws_iam_openid_connect_provider.github_actions) > 0 ? aws_iam_openid_connect_provider.github_actions[0].arn : null
+  description = "ARN of the GitHub Actions OIDC provider (created or adopted)."
+  value       = local.github_oidc_provider_arn
 }

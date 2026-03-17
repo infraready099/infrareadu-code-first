@@ -609,6 +609,12 @@ async function deployTemplate(params: {
 
 // ─── Deploy module with retry ─────────────────────────────────────────────────
 
+// Errors that indicate an AWS singleton resource already exists in the account.
+// These are NOT transient — retrying the same config will always fail.
+// Fix: detect the resource and skip creation on the next attempt.
+const OIDC_EXISTS_PATTERN      = "EntityAlreadyExists";
+const CONFIG_RECORDER_PATTERN  = "MaxNumberOfConfigurationRecordersExceededException";
+
 async function deployModuleWithRetry(params: {
   moduleName:   string;
   moduleConfig: Record<string, unknown>;
@@ -620,23 +626,55 @@ async function deployModuleWithRetry(params: {
 }): Promise<Record<string, unknown>> {
   const { moduleName, moduleConfig, credentials, deploymentId, projectId, region, awsAccountId } = params;
 
-  const tofuOpts = { module: moduleName, config: moduleConfig, credentials, deploymentId, projectId, region, awsAccountId,
-    onLog: (level: "info" | "success" | "error" | "warn", line: string) => appendLog(deploymentId, level, line) };
+  // Accumulate skip-flags as we discover existing singleton resources
+  let config = { ...moduleConfig };
+
+  const tofuOpts = () => ({
+    module: moduleName, config, credentials, deploymentId, projectId, region, awsAccountId,
+    onLog: (level: "info" | "success" | "error" | "warn", line: string) => appendLog(deploymentId, level, line),
+  });
 
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      return await execOpenTofu(tofuOpts);
+      return await execOpenTofu(tofuOpts());
     } catch (err) {
       lastError = err as Error;
+      const msg = lastError.message;
+
+      // ── Singleton-resource conflicts ─────────────────────────────────────
+      // These can never succeed by retrying the same config — instead, tell
+      // the module to adopt the existing resource rather than create a new one.
+      if (moduleName === "security") {
+        let patched = false;
+        if (msg.includes(OIDC_EXISTS_PATTERN) && config.create_github_oidc_provider !== false) {
+          config = { ...config, create_github_oidc_provider: false };
+          await appendLog(deploymentId, "info",
+            "[InfraReady] GitHub Actions OIDC provider already exists in this AWS account — adopting existing provider."
+          );
+          patched = true;
+        }
+        if (msg.includes(CONFIG_RECORDER_PATTERN) && config.create_config_recorder !== false) {
+          config = { ...config, create_config_recorder: false };
+          await appendLog(deploymentId, "info",
+            "[InfraReady] AWS Config recorder already exists in this account — skipping recorder creation."
+          );
+          patched = true;
+        }
+        if (patched && attempt < MAX_ATTEMPTS) {
+          await appendLog(deploymentId, "info", `[InfraReady] Retrying security with updated config...`);
+          continue;
+        }
+      }
+
       const errorClass = classifyError(lastError);
 
       if (errorClass === "fatal") {
         await appendLog(deploymentId, "error",
           `[InfraReady] Fatal error on ${moduleName} — not retrying: ${friendlyError(lastError.message)}`
         );
-        await cleanupModule(moduleName, tofuOpts, deploymentId);
+        await cleanupModule(moduleName, tofuOpts(), deploymentId);
         throw lastError;
       }
 
@@ -653,7 +691,7 @@ async function deployModuleWithRetry(params: {
   }
 
   // All retries exhausted — clean up this module's partial resources
-  await cleanupModule(moduleName, tofuOpts, deploymentId);
+  await cleanupModule(moduleName, tofuOpts(), deploymentId);
   throw lastError ?? new Error(`${moduleName} failed after ${MAX_ATTEMPTS} attempts`);
 }
 

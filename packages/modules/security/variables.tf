@@ -49,6 +49,12 @@ variable "enable_config" {
   default     = true
 }
 
+variable "create_config_recorder" {
+  description = "Set to false if your AWS account already has an AWS Config recorder. InfraReady's SOC2 config rules will be skipped when false."
+  type        = bool
+  default     = true
+}
+
 variable "enable_soc2_conformance_pack" {
   description = "Deploy the SOC2 AWS Config Conformance Pack (~18 managed rules)."
   type        = bool
@@ -72,6 +78,12 @@ variable "enable_github_deploy_role" {
   description = "Create a GitHub OIDC provider + least-privilege deploy role. No long-lived credentials needed."
   type        = bool
   default     = false
+}
+
+variable "create_github_oidc_provider" {
+  description = "Set to false if your AWS account already has the GitHub Actions OIDC provider. InfraReady will use the existing one."
+  type        = bool
+  default     = true
 }
 
 variable "github_repo_slug" {
