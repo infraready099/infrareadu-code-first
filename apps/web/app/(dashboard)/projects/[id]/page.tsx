@@ -11,16 +11,18 @@ import {
   RefreshCw,
   Rocket,
   Terminal,
+  Trash2,
 } from "lucide-react";
 import { Metadata } from "next";
 import { RealtimeLogs } from "./realtime-logs";
 import { ResourceOutputs } from "./resource-outputs";
+import { DestroyButton } from "./destroy-button";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type DeploymentStatus = "pending" | "deploying" | "queued" | "running" | "success" | "failed";
+type DeploymentStatus = "pending" | "deploying" | "queued" | "running" | "success" | "failed" | "destroying" | "destroyed";
 
 interface LogLine {
   ts:    string;
@@ -57,12 +59,14 @@ const statusConfig: Record<
   DeploymentStatus,
   { label: string; icon: React.ReactNode; className: string }
 > = {
-  pending:   { label: "Not deployed",  icon: <Clock className="w-3 h-3" />,                    className: "badge-pending" },
-  queued:    { label: "Queued",         icon: <Clock className="w-3 h-3" />,                    className: "badge-pending" },
-  deploying: { label: "Deploying...",   icon: <Loader2 className="w-3 h-3 animate-spin" />,     className: "badge-deploying" },
-  running:   { label: "Running...",     icon: <Loader2 className="w-3 h-3 animate-spin" />,     className: "badge-deploying" },
-  success:   { label: "Live",           icon: <CheckCircle className="w-3 h-3" />,               className: "badge-success" },
-  failed:    { label: "Failed",         icon: <AlertCircle className="w-3 h-3" />,               className: "badge-failed" },
+  pending:    { label: "Not deployed",   icon: <Clock className="w-3 h-3" />,                    className: "badge-pending" },
+  queued:     { label: "Queued",          icon: <Clock className="w-3 h-3" />,                    className: "badge-pending" },
+  deploying:  { label: "Deploying...",    icon: <Loader2 className="w-3 h-3 animate-spin" />,     className: "badge-deploying" },
+  running:    { label: "Running...",      icon: <Loader2 className="w-3 h-3 animate-spin" />,     className: "badge-deploying" },
+  success:    { label: "Live",            icon: <CheckCircle className="w-3 h-3" />,               className: "badge-success" },
+  failed:     { label: "Failed",          icon: <AlertCircle className="w-3 h-3" />,               className: "badge-failed" },
+  destroying: { label: "Destroying...",   icon: <Loader2 className="w-3 h-3 animate-spin" />,     className: "badge-failed" },
+  destroyed:  { label: "Destroyed",       icon: <Trash2 className="w-3 h-3" />,                   className: "badge-pending" },
 };
 
 function StatusBadge({ status }: { status: DeploymentStatus }) {
@@ -131,6 +135,7 @@ export default async function ProjectDetailPage({
   const logs: LogLine[] = Array.isArray(deployment?.logs) ? (deployment.logs as LogLine[]) : [];
 
   const canRedeploy = p.status === "success" || p.status === "failed";
+  const canDestroy  = p.status === "success" || p.status === "failed";
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
@@ -142,10 +147,12 @@ export default async function ProjectDetailPage({
             <StatusBadge status={p.status} />
           </div>
           <div className="flex items-center gap-4 text-sm text-gray-500">
-            <span className="flex items-center gap-1.5">
-              <GitBranch className="w-3.5 h-3.5" />
-              {p.repo_url.replace("https://github.com/", "")}
-            </span>
+            {p.repo_url && (
+              <span className="flex items-center gap-1.5">
+                <GitBranch className="w-3.5 h-3.5" />
+                {p.repo_url.replace("https://github.com/", "")}
+              </span>
+            )}
             <span className="flex items-center gap-1.5">
               <Globe className="w-3.5 h-3.5" />
               {p.aws_region}
@@ -177,6 +184,7 @@ export default async function ProjectDetailPage({
               Configure &amp; Deploy
             </Link>
           )}
+          {canDestroy && <DestroyButton projectId={p.id} />}
         </div>
       </div>
 

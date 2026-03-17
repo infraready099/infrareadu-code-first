@@ -118,6 +118,7 @@ function friendlyError(msg: string): string {
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface DeployJob {
+  action?: "deploy" | "destroy";
   deploymentId: string;
   projectId: string;
   userId: string;
@@ -189,6 +190,12 @@ async function processRecord(record: SQSRecord): Promise<void> {
     };
 
     await appendLog(deploymentId, "success", "[AWS] Role assumed successfully");
+
+    // ── Destroy branch ───────────────────────────────────────────────────────
+    if (job.action === "destroy") {
+      await destroyAll({ job, credentials, deploymentId });
+      return;
+    }
 
     // ── Template branch: resolve modules and inject config from registry ─────
     if (job.appTemplateId) {
@@ -419,6 +426,74 @@ async function processRecord(record: SQSRecord): Promise<void> {
       .update({ status: "failed" })
       .eq("id", job.projectId);
   }
+}
+
+// ─── Destroy all modules ─────────────────────────────────────────────────────
+
+async function destroyAll(params: {
+  job: DeployJob;
+  credentials: Credentials;
+  deploymentId: string;
+}): Promise<void> {
+  const { job, credentials, deploymentId } = params;
+  const region = (job.config.aws_region as string) ?? "us-east-1";
+  const awsAccountId = job.awsRoleArn.split(":")[4];
+
+  // Destroy in reverse order so dependencies are removed cleanly
+  const MODULE_DESTROY_ORDER = ["security", "storage", "ecs", "rds", "vpc"];
+  const toDestroy = MODULE_DESTROY_ORDER.filter((m) => job.modules.includes(m));
+
+  if (toDestroy.length === 0) {
+    await appendLog(deploymentId, "warn", "[InfraReady] No modules found to destroy — nothing to do.");
+    await updateDeployment(deploymentId, { status: "success", completed_at: new Date().toISOString() });
+    await supabase.from("projects").update({ status: "destroyed" }).eq("id", job.projectId);
+    return;
+  }
+
+  await appendLog(deploymentId, "info",
+    `[InfraReady] Destroying modules in order: ${toDestroy.join(" → ")}`
+  );
+
+  for (const moduleName of toDestroy) {
+    await appendLog(deploymentId, "info", `\n[OpenTofu] Destroying module: ${moduleName}`);
+    await updateDeployment(deploymentId, { current_module: moduleName });
+
+    const moduleConfig = buildModuleConfig(moduleName, job.config, {}, {});
+
+    try {
+      await destroyOpenTofu({
+        module: moduleName,
+        config: moduleConfig,
+        credentials,
+        deploymentId,
+        projectId: job.projectId,
+        region,
+        awsAccountId,
+        onLog: (level, line) => appendLog(deploymentId, level, line),
+      });
+      await appendLog(deploymentId, "success", `[OpenTofu] Module ${moduleName} destroyed`);
+    } catch (err) {
+      // Log and continue — best-effort destroy, don't stop on one module failing
+      await appendLog(deploymentId, "warn",
+        `[InfraReady] ${moduleName} destroy failed (may already be gone): ${(err as Error).message}`
+      );
+    }
+  }
+
+  await updateDeployment(deploymentId, {
+    status: "success",
+    completed_at: new Date().toISOString(),
+    current_module: null,
+  });
+
+  await supabase
+    .from("projects")
+    .update({ status: "destroyed", last_deployed_at: new Date().toISOString() })
+    .eq("id", job.projectId);
+
+  await appendLog(deploymentId, "success",
+    "\n[InfraReady] All resources destroyed. Your AWS account is clean."
+  );
 }
 
 // ─── Template deployment ──────────────────────────────────────────────────────
