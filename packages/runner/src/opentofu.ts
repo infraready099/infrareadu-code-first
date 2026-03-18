@@ -10,6 +10,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { S3Client } from "@aws-sdk/client-s3";
 import { EC2Client, DescribeVpcsCommand, DescribeAddressesCommand } from "@aws-sdk/client-ec2";
+import { ElasticLoadBalancingV2Client, DescribeTargetGroupsCommand } from "@aws-sdk/client-elastic-load-balancing-v2";
 import {
   SecretsManagerClient,
   DescribeSecretCommand,
@@ -231,6 +232,25 @@ async function tryImportOrphans(
     }
   }
 
+  // Look up ELB Target Group ARN by name so we can import it
+  let tgArn = "";
+  if (module === "ecs") {
+    try {
+      const elb = new ElasticLoadBalancingV2Client({
+        region,
+        credentials: {
+          accessKeyId: env.AWS_ACCESS_KEY_ID!,
+          secretAccessKey: env.AWS_SECRET_ACCESS_KEY!,
+          sessionToken: env.AWS_SESSION_TOKEN,
+        },
+      });
+      const tgResult = await elb.send(new DescribeTargetGroupsCommand({ Names: [`${name}-tg`] }));
+      tgArn = tgResult.TargetGroups?.[0]?.TargetGroupArn ?? "";
+    } catch {
+      // TG doesn't exist yet — fine
+    }
+  }
+
   // Map of module → [ [resource_address, resource_id], ... ]
   const imports: Record<string, [string, string][]> = {
     vpc: [
@@ -238,10 +258,11 @@ async function tryImportOrphans(
       ["aws_iam_role.flow_logs[0]",             `${name}-vpc-flow-logs-role`],
     ],
     ecs: [
-      ["aws_cloudwatch_log_group.app",    `/infraready/${name}/app`],
+      ["aws_cloudwatch_log_group.app",    `/infraready/${name}/ecs`],
       ["aws_iam_role.ecs_task",           `${name}-ecs-task-role`],
       ["aws_iam_role.ecs_execution",      `${name}-ecs-execution-role`],
       ["aws_s3_bucket.alb_logs",          `${name}-alb-logs-${accountId}`],
+      ...(tgArn ? [["aws_lb_target_group.app", tgArn] as [string, string]] : []),
     ],
     rds: [
       ["aws_cloudwatch_log_group.rds",    `/infraready/${name}/rds`],
