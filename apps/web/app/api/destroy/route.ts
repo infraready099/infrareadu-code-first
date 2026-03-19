@@ -20,28 +20,25 @@ export async function POST(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
   const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
 
-  // Build a user-scoped Supabase client.
-  // If a Bearer token is present, inject it so RLS uses that identity.
-  // Otherwise fall back to the cookie-based server client.
-  // Either way, RLS on the projects table enforces ownership — no manual user_id check needed.
-  let userClient: ReturnType<typeof createClient>;
+  // Verify identity: Bearer token takes priority (reliable in client fetches),
+  // fall back to cookie-based auth (Server Components / SSR).
+  let userId: string;
 
   if (bearerToken) {
-    userClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { global: { headers: { Authorization: `Bearer ${bearerToken}` } } },
-    );
+    // adminClient.auth.getUser(token) validates the JWT server-side — no client needed
+    const { data: { user }, error } = await adminClient.auth.getUser(bearerToken);
+    if (!user || error) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    userId = user.id;
   } else {
-    userClient = await createServerClient() as unknown as ReturnType<typeof createClient>;
+    const serverClient = await createServerClient();
+    const { data: { user } } = await serverClient.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    userId = user.id;
   }
-
-  // Verify identity
-  const { data: { user } } = await userClient.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const userId = user.id;
 
   const body = await req.json();
   const parsed = destroySchema.safeParse(body);
