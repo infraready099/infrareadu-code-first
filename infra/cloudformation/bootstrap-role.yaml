@@ -57,7 +57,7 @@ Resources:
               StringEquals:
                 sts:ExternalId: !Ref ExternalId
 
-      MaxSessionDuration: 3600  # 1 hour — matches runner STS call
+      MaxSessionDuration: 7200  # 2 hours — matches runner STS DurationSeconds
 
       # ── Inline Policy ────────────────────────────────────────────────────────
       # Inline (not managed) so it is always in sync with this stack and
