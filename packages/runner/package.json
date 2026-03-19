@@ -9,6 +9,8 @@
   },
   "dependencies": {
     "@aws-sdk/client-ec2": "^3.1008.0",
+    "@aws-sdk/client-ecs": "^3.1012.0",
+    "@aws-sdk/client-elastic-load-balancing-v2": "^3.1012.0",
     "@aws-sdk/client-s3": "^3.729.0",
     "@aws-sdk/client-sts": "^3.729.0",
     "@supabase/supabase-js": "^2.47.10"

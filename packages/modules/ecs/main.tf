@@ -157,7 +157,7 @@ resource "aws_lb" "app" {
   security_groups    = [aws_security_group.alb.id]
   subnets            = var.public_subnet_ids
 
-  enable_deletion_protection = true
+  enable_deletion_protection = false # Must be false so tofu destroy can remove the ALB
   drop_invalid_header_fields = true # Security best practice
 
   access_logs {
@@ -174,7 +174,7 @@ resource "aws_lb" "app" {
 # ALB access logs bucket
 resource "aws_s3_bucket" "alb_logs" {
   bucket        = "${local.name}-alb-logs-${data.aws_caller_identity.current.account_id}"
-  force_destroy = false
+  force_destroy = true # Required so tofu destroy can empty and delete the bucket
 
   tags = local.common_tags
 }

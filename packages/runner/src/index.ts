@@ -12,6 +12,18 @@
 
 import { SQSEvent, SQSRecord } from "aws-lambda";
 import { STSClient, AssumeRoleCommand } from "@aws-sdk/client-sts";
+import {
+  ElasticLoadBalancingV2Client,
+  DescribeLoadBalancersCommand,
+  ModifyLoadBalancerAttributesCommand,
+} from "@aws-sdk/client-elastic-load-balancing-v2";
+import {
+  ECSClient,
+  ListServicesCommand,
+  UpdateServiceCommand,
+  ListTasksCommand,
+  StopTaskCommand,
+} from "@aws-sdk/client-ecs";
 import { execOpenTofu, destroyOpenTofu } from "./opentofu";
 import { createClient } from "@supabase/supabase-js";
 import { generateConfig, ModuleType, IaCEngine } from "./services/terraform-generator";
@@ -428,6 +440,71 @@ async function processRecord(record: SQSRecord): Promise<void> {
   }
 }
 
+// ─── Pre-destroy ECS cleanup ──────────────────────────────────────────────────
+// Before tofu destroy runs on the ECS module, we must:
+// 1. Disable ALB deletion protection (aws_lb has enable_deletion_protection=true by default)
+// 2. Stop all ECS tasks so their ENIs are released before subnet deletion
+// Without this, tofu destroy hangs indefinitely on subnet/IGW because attached ENIs block deletion.
+
+async function preDestroyEcs(params: {
+  projectName: string;
+  region: string;
+  credentials: Credentials;
+  deploymentId: string;
+}): Promise<void> {
+  const { projectName, region, credentials, deploymentId } = params;
+  const clientConfig = {
+    region,
+    credentials: {
+      accessKeyId:     credentials.AccessKeyId,
+      secretAccessKey: credentials.SecretAccessKey,
+      sessionToken:    credentials.SessionToken,
+    },
+  };
+  const elbv2 = new ElasticLoadBalancingV2Client(clientConfig);
+  const ecs   = new ECSClient(clientConfig);
+
+  // 1. Disable deletion protection on all ALBs tagged with this project
+  try {
+    const lbs = await elbv2.send(new DescribeLoadBalancersCommand({}));
+    const projectAlbs = (lbs.LoadBalancers ?? []).filter((lb) =>
+      lb.LoadBalancerName?.startsWith(projectName)
+    );
+    for (const lb of projectAlbs) {
+      if (!lb.LoadBalancerArn) continue;
+      await elbv2.send(new ModifyLoadBalancerAttributesCommand({
+        LoadBalancerArn: lb.LoadBalancerArn,
+        Attributes: [{ Key: "deletion_protection.enabled", Value: "false" }],
+      }));
+      await appendLog(deploymentId, "info", `[InfraReady] ALB deletion protection disabled: ${lb.LoadBalancerName}`);
+    }
+  } catch (err) {
+    await appendLog(deploymentId, "warn", `[InfraReady] ALB cleanup warning (non-fatal): ${(err as Error).message}`);
+  }
+
+  // 2. Scale ECS service to 0 and stop all running tasks so ENIs are released
+  try {
+    const clusterName = `${projectName}-cluster`;
+    const servicesRes = await ecs.send(new ListServicesCommand({ cluster: clusterName }));
+    for (const serviceArn of servicesRes.serviceArns ?? []) {
+      await ecs.send(new UpdateServiceCommand({
+        cluster:      clusterName,
+        service:      serviceArn,
+        desiredCount: 0,
+      }));
+    }
+    // Stop any still-running tasks
+    const tasksRes = await ecs.send(new ListTasksCommand({ cluster: clusterName }));
+    for (const taskArn of tasksRes.taskArns ?? []) {
+      await ecs.send(new StopTaskCommand({ cluster: clusterName, task: taskArn, reason: "InfraReady destroy" }));
+    }
+    await appendLog(deploymentId, "info", `[InfraReady] ECS tasks stopped — waiting 15s for ENIs to release`);
+    await new Promise((r) => setTimeout(r, 15_000));
+  } catch (err) {
+    await appendLog(deploymentId, "warn", `[InfraReady] ECS drain warning (non-fatal): ${(err as Error).message}`);
+  }
+}
+
 // ─── Destroy all modules ─────────────────────────────────────────────────────
 
 async function destroyAll(params: {
@@ -460,6 +537,13 @@ async function destroyAll(params: {
   for (const moduleName of toDestroy) {
     await appendLog(deploymentId, "info", `\n[OpenTofu] Destroying module: ${moduleName}`);
     await updateDeployment(deploymentId, { current_module: moduleName });
+
+    // Pre-destroy ECS cleanup: disable ALB deletion protection + drain tasks
+    // This must happen before tofu destroy or subnet/IGW deletion will hang indefinitely
+    if (moduleName === "ecs") {
+      const projectName = (job.config.project_name as string) ?? job.projectId.slice(0, 8);
+      await preDestroyEcs({ projectName, region, credentials, deploymentId });
+    }
 
     const moduleConfig = buildModuleConfig(moduleName, job.config, {}, {});
 
