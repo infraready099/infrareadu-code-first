@@ -610,6 +610,175 @@ export default async function LandingPage() {
       </section>
 
       {/* ════════════════════════════════════════════════════════
+          HEROKU ALTERNATIVE
+      ════════════════════════════════════════════════════════ */}
+      <section
+        id="heroku-alternative"
+        className="py-28 px-6"
+        style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}
+      >
+        <div className="max-w-[1100px] mx-auto">
+          {/* Header */}
+          <div className="max-w-[720px] mb-14">
+            <p className="text-xs font-semibold uppercase tracking-widest mb-4" style={{ color: "#00E5FF" }}>
+              Heroku alternative
+            </p>
+            <h2
+              className="font-bold text-white mb-5"
+              style={{ fontSize: "clamp(28px, 3.5vw, 48px)", letterSpacing: "-0.03em", lineHeight: 1.1 }}
+            >
+              Heroku went into sustaining mode.{" "}
+              <span
+                style={{
+                  background: "linear-gradient(135deg, #00E5FF 0%, #0EA5E9 100%)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  backgroundClip: "text",
+                }}
+              >
+                You deserve better.
+              </span>
+            </h2>
+            <p className="text-base leading-relaxed" style={{ color: "#94A3B8" }}>
+              In February 2026, Heroku announced sustaining mode — no new features, reduced support. Thousands of developers are looking for a production home. InfraReady deploys to YOUR AWS account — not ours. No new landlord, no new lock-in.
+            </p>
+          </div>
+
+          {/* Comparison table */}
+          <div
+            className="rounded-2xl overflow-hidden mb-12"
+            style={{
+              background: "rgba(255,255,255,0.025)",
+              border: "1px solid rgba(255,255,255,0.07)",
+            }}
+          >
+            {/* Table header */}
+            <div
+              className="grid grid-cols-4 text-xs font-bold uppercase tracking-widest px-6 py-4"
+              style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", color: "#475569" }}
+            >
+              <span className="col-span-1"></span>
+              <span className="text-center">Heroku</span>
+              <span className="text-center">Railway / Render</span>
+              <span className="text-center" style={{ color: "#00E5FF" }}>InfraReady</span>
+            </div>
+
+            {/* Rows */}
+            {[
+              { label: "You own the infrastructure", heroku: false, railway: false, infra: true },
+              { label: "Uses your AWS credits", heroku: false, railway: false, infra: true },
+              { label: "SOC 2-ready from day one", heroku: false, railway: false, infra: true },
+              { label: "No vendor lock-in", heroku: false, railway: false, infra: true },
+              { label: "Price at scale", heroku: "$$$$", railway: "$$", infra: "Your AWS cost only" },
+            ].map((row, i) => (
+              <div
+                key={row.label}
+                className="grid grid-cols-4 items-center px-6 py-4 text-sm"
+                style={{
+                  borderBottom: i < 4 ? "1px solid rgba(255,255,255,0.04)" : "none",
+                  background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)",
+                }}
+              >
+                <span className="col-span-1 text-xs font-medium" style={{ color: "#94A3B8" }}>
+                  {row.label}
+                </span>
+                {/* Heroku */}
+                <span className="flex justify-center">
+                  {typeof row.heroku === "boolean" ? (
+                    row.heroku ? (
+                      <span
+                        className="flex items-center justify-center w-5 h-5 rounded-full"
+                        style={{ background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.2)" }}
+                      >
+                        <Check size={11} className="text-emerald-400" />
+                      </span>
+                    ) : (
+                      <span
+                        className="flex items-center justify-center w-5 h-5 rounded-full"
+                        style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.18)" }}
+                      >
+                        <X size={11} className="text-red-400" />
+                      </span>
+                    )
+                  ) : (
+                    <span className="text-xs font-semibold" style={{ color: "#EF4444" }}>
+                      {row.heroku}
+                    </span>
+                  )}
+                </span>
+                {/* Railway / Render */}
+                <span className="flex justify-center">
+                  {typeof row.railway === "boolean" ? (
+                    row.railway ? (
+                      <span
+                        className="flex items-center justify-center w-5 h-5 rounded-full"
+                        style={{ background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.2)" }}
+                      >
+                        <Check size={11} className="text-emerald-400" />
+                      </span>
+                    ) : (
+                      <span
+                        className="flex items-center justify-center w-5 h-5 rounded-full"
+                        style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.18)" }}
+                      >
+                        <X size={11} className="text-red-400" />
+                      </span>
+                    )
+                  ) : (
+                    <span className="text-xs font-semibold" style={{ color: "#F97316" }}>
+                      {row.railway}
+                    </span>
+                  )}
+                </span>
+                {/* InfraReady */}
+                <span className="flex justify-center">
+                  {typeof row.infra === "boolean" ? (
+                    row.infra ? (
+                      <span
+                        className="flex items-center justify-center w-5 h-5 rounded-full"
+                        style={{ background: "rgba(0,229,255,0.1)", border: "1px solid rgba(0,229,255,0.25)" }}
+                      >
+                        <Check size={11} style={{ color: "#00E5FF" }} />
+                      </span>
+                    ) : (
+                      <span
+                        className="flex items-center justify-center w-5 h-5 rounded-full"
+                        style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.18)" }}
+                      >
+                        <X size={11} className="text-red-400" />
+                      </span>
+                    )
+                  ) : (
+                    <span className="text-xs font-bold" style={{ color: "#00E5FF" }}>
+                      {row.infra}
+                    </span>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* CTA */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <Link
+              href="/login"
+              className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl font-bold text-sm text-black transition-all duration-200"
+              style={{
+                background: "#00E5FF",
+                boxShadow: "0 0 30px rgba(0,229,255,0.45)",
+              }}
+            >
+              <ArrowRight size={16} />
+              Migrate from Heroku in 20 minutes
+            </Link>
+            <p className="text-xs" style={{ color: "#475569" }}>
+              No DevOps knowledge required &middot; Deploys to your AWS account
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ════════════════════════════════════════════════════════
           HOW IT WORKS
       ════════════════════════════════════════════════════════ */}
       <section
