@@ -134,7 +134,7 @@ export default async function ProjectDetailPage({
   const deployment = latestDeployment as Deployment | null;
   const logs: LogLine[] = Array.isArray(deployment?.logs) ? (deployment.logs as LogLine[]) : [];
 
-  const canRedeploy = p.status === "success" || p.status === "failed";
+  const canRedeploy = p.status === "success" || p.status === "failed" || p.status === "destroyed";
   const canDestroy  = p.status === "success" || p.status === "failed";
 
   return (

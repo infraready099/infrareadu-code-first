@@ -5,7 +5,7 @@
 
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { writeFileSync, mkdirSync, cpSync } from "fs";
+import { writeFileSync, mkdirSync, cpSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { S3Client } from "@aws-sdk/client-s3";
@@ -100,13 +100,18 @@ export async function destroyOpenTofu(opts: OpenTofuOptions): Promise<void> {
     module, config, credentials, projectId, region, awsAccountId
   );
 
-  await ensureStateBucket(stateBucket, region, credentials);
+  try {
+    await ensureStateBucket(stateBucket, region, credentials);
 
-  await onLog("info", `[tofu] Initializing ${module} for destroy...`);
-  await runTofu(["init", `-backend-config=${backendConfigPath}`, "-reconfigure"], workDir, env, onLog);
+    await onLog("info", `[tofu] Initializing ${module} for destroy...`);
+    await runTofu(["init", `-backend-config=${backendConfigPath}`, "-reconfigure"], workDir, env, onLog);
 
-  await onLog("info", `[tofu] Destroying ${module}...`);
-  await runTofu(["destroy", "-auto-approve", `-var-file=${tfvarsPath}`], workDir, env, onLog);
+    await onLog("info", `[tofu] Destroying ${module}...`);
+    await runTofu(["destroy", "-auto-approve", `-var-file=${tfvarsPath}`], workDir, env, onLog);
+  } finally {
+    // I1: always clean up the temp work directory regardless of success or failure
+    rmSync(workDir, { recursive: true, force: true });
+  }
 }
 
 export async function execOpenTofu(opts: OpenTofuOptions): Promise<Record<string, unknown>> {
@@ -116,35 +121,40 @@ export async function execOpenTofu(opts: OpenTofuOptions): Promise<Record<string
     module, config, credentials, projectId, region, awsAccountId
   );
 
-  await ensureStateBucket(stateBucket, region, credentials);
+  try {
+    await ensureStateBucket(stateBucket, region, credentials);
 
-  // tofu init
-  await onLog("info", `[tofu] Initializing module ${module}...`);
-  await runTofu(["init", `-backend-config=${backendConfigPath}`, "-reconfigure"], workDir, env, onLog);
+    // tofu init
+    await onLog("info", `[tofu] Initializing module ${module}...`);
+    await runTofu(["init", `-backend-config=${backendConfigPath}`, "-reconfigure"], workDir, env, onLog);
 
-  // Pre-flight import: pull any orphaned resources into state so apply doesn't fail with "already exists"
-  await tryImportOrphans(module, config, workDir, env, onLog);
+    // Pre-flight import: pull any orphaned resources into state so apply doesn't fail with "already exists"
+    await tryImportOrphans(module, config, workDir, env, onLog);
 
-  // tofu plan
-  await onLog("info", `[tofu] Planning ${module}...`);
-  const planPath = join(workDir, "plan.out");
-  await runTofu(["plan", "-compact-warnings", `-var-file=${tfvarsPath}`, `-out=${planPath}`], workDir, env, onLog);
+    // tofu plan
+    await onLog("info", `[tofu] Planning ${module}...`);
+    const planPath = join(workDir, "plan.out");
+    await runTofu(["plan", "-compact-warnings", `-var-file=${tfvarsPath}`, `-out=${planPath}`], workDir, env, onLog);
 
-  // tofu apply
-  await onLog("info", `[tofu] Applying ${module}...`);
-  await runTofu(["apply", "-compact-warnings", "-auto-approve", planPath], workDir, env, onLog);
+    // tofu apply
+    await onLog("info", `[tofu] Applying ${module}...`);
+    await runTofu(["apply", "-compact-warnings", "-auto-approve", planPath], workDir, env, onLog);
 
-  // tofu output — get the outputs as JSON
-  const { stdout } = await execFileAsync(OPENTOFU_BINARY, ["output", "-json"], {
-    cwd: workDir,
-    env,
-  });
+    // tofu output — get the outputs as JSON
+    const { stdout } = await execFileAsync(OPENTOFU_BINARY, ["output", "-json"], {
+      cwd: workDir,
+      env,
+    });
 
-  // Parse outputs — OpenTofu outputs are { key: { value: ..., type: ... } }
-  const rawOutputs = JSON.parse(stdout) as Record<string, { value: unknown }>;
-  return Object.fromEntries(
-    Object.entries(rawOutputs).map(([k, v]) => [k, v.value])
-  );
+    // Parse outputs — OpenTofu outputs are { key: { value: ..., type: ... } }
+    const rawOutputs = JSON.parse(stdout) as Record<string, { value: unknown }>;
+    return Object.fromEntries(
+      Object.entries(rawOutputs).map(([k, v]) => [k, v.value])
+    );
+  } finally {
+    // I1: always clean up the temp work directory regardless of success or failure
+    rmSync(workDir, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -188,26 +198,27 @@ async function tryImportOrphans(
           await onLog("info", `[tofu] Imported existing VPC ${vpcId} into state`);
         } catch { /* already in state */ }
 
-        // Subnets — look up by VPC ID, then match by CIDR to terraform address
+        // Subnets — look up by VPC ID, then match by Name tag so this works with any vpc_cidr
         try {
           const subnetResult = await ec2.send(new DescribeSubnetsCommand({
             Filters: [{ Name: "vpc-id", Values: [vpcId] }],
           }));
           const subnets = subnetResult.Subnets ?? [];
 
-          const publicCidrs  = ["10.0.0.0/20", "10.0.16.0/20"];
-          const privateCidrs = ["10.0.128.0/20", "10.0.144.0/20"];
+          // C1: match by Name tag — works regardless of vpc_cidr value
+          const publicNames  = [`${name}-public-us-east-1a`, `${name}-public-us-east-1b`];
+          const privateNames = [`${name}-private-us-east-1a`, `${name}-private-us-east-1b`];
 
-          for (let i = 0; i < publicCidrs.length; i++) {
-            const subnet = subnets.find((s) => s.CidrBlock === publicCidrs[i]);
+          for (let i = 0; i < publicNames.length; i++) {
+            const subnet = subnets.find((s) => s.Tags?.some((t) => t.Key === "Name" && t.Value === publicNames[i]));
             if (!subnet?.SubnetId) continue;
             try {
               await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, `aws_subnet.public[${i}]`, subnet.SubnetId], { cwd: workDir, env });
               await onLog("info", `[tofu] Imported existing subnet ${subnet.SubnetId} as public[${i}]`);
             } catch { /* already in state */ }
           }
-          for (let i = 0; i < privateCidrs.length; i++) {
-            const subnet = subnets.find((s) => s.CidrBlock === privateCidrs[i]);
+          for (let i = 0; i < privateNames.length; i++) {
+            const subnet = subnets.find((s) => s.Tags?.some((t) => t.Key === "Name" && t.Value === privateNames[i]));
             if (!subnet?.SubnetId) continue;
             try {
               await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, `aws_subnet.private[${i}]`, subnet.SubnetId], { cwd: workDir, env });
@@ -245,9 +256,13 @@ async function tryImportOrphans(
         } catch { /* flow log lookup failed — proceed */ }
       }
 
-      // Import existing EIPs for NAT gateways (tagged with the project name)
+      // Import existing EIPs for NAT gateways — filter by both Project and Environment
+      // to avoid importing EIPs that belong to a different environment of the same project (W6)
       const eipResult = await ec2.send(new DescribeAddressesCommand({
-        Filters: [{ Name: "tag:Project", Values: [String(config.project_name)] }],
+        Filters: [
+          { Name: "tag:Project",     Values: [String(config.project_name)] },
+          { Name: "tag:Environment", Values: [String(config.environment ?? "production")] },
+        ],
       }));
       const eips = eipResult.Addresses ?? [];
       for (let i = 0; i < eips.length; i++) {

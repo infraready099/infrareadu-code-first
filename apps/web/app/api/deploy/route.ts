@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
   // We manually verify ownership below.
   const { data: project, error: projectError } = await adminClient
     .from("projects")
-    .select("id, name, aws_role_arn, aws_external_id, aws_region, aws_account_id, repo_url, github_installation_id, user_id, app_template_id, template_config")
+    .select("id, name, aws_role_arn, aws_external_id, aws_region, aws_account_id, repo_url, github_installation_id, user_id, app_template_id, template_config, status")
     .eq("id", projectId)
     .single();
 
@@ -99,6 +99,14 @@ export async function POST(req: NextRequest) {
 
   if (!project.aws_role_arn) {
     return NextResponse.json({ error: "AWS account not connected. Please connect your AWS account first." }, { status: 400 });
+  }
+
+  // C5: reject concurrent operations — one deploy/destroy at a time per project
+  if (["deploying", "running", "destroying"].includes(project.status)) {
+    return NextResponse.json(
+      { error: `Project is currently ${project.status}. Wait for it to finish before starting a new operation.` },
+      { status: 409 }
+    );
   }
 
   // ── Resolve modules ────────────────────────────────────────────────────────

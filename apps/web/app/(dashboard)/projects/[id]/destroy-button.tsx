@@ -27,8 +27,8 @@ export function DestroyButton({ projectId }: { projectId: string }) {
         return;
       }
       // Redirect to the deployment log so user can watch progress
+      // I2: router.push already re-fetches server component data — no need for router.refresh()
       router.push(`/projects/${projectId}?deployment=${data.deploymentId}`);
-      router.refresh();
     } catch {
       setError("Network error — please try again");
       setLoading(false);

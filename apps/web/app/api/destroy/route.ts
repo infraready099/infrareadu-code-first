@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
   // We manually verify ownership below.
   const { data: project, error: projectError } = await adminClient
     .from("projects")
-    .select("id, name, aws_role_arn, aws_external_id, aws_region, aws_account_id, user_id, modules")
+    .select("id, name, aws_role_arn, aws_external_id, aws_region, aws_account_id, user_id, modules, status")
     .eq("id", projectId)
     .single();
 
@@ -79,11 +79,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "AWS account not connected. Cannot destroy infrastructure that was never deployed." }, { status: 400 });
   }
 
-  // Fetch modules from the last successful deployment so the runner knows what to tear down.
-  // Falls back to an empty array — the runner will handle that case gracefully.
+  // C5: reject concurrent operations — one deploy/destroy at a time per project
+  if (["deploying", "running", "destroying"].includes(project.status)) {
+    return NextResponse.json(
+      { error: `Project is currently ${project.status}. Wait for it to finish before starting a new operation.` },
+      { status: 409 }
+    );
+  }
+
+  // C3/W3/W5: fetch both modules and full config from the last successful deployment
+  // so the runner has the original vpc_cidr, environment, and other settings needed for destroy.
   const { data: lastDeployment } = await adminClient
     .from("deployments")
-    .select("modules")
+    .select("modules, config")
     .eq("project_id", projectId)
     .eq("status", "success")
     .order("created_at", { ascending: false })
@@ -91,15 +99,17 @@ export async function POST(req: NextRequest) {
     .single();
 
   const lastModules: string[] = lastDeployment?.modules ?? [];
+  const lastConfig: Record<string, unknown> = (lastDeployment?.config as Record<string, unknown>) ?? {};
 
   // Create destroy deployment record
+  // I3: store the actual module list so the UI can show what will be destroyed
   const { data: deployment, error: dbError } = await adminClient
     .from("deployments")
     .insert({
       project_id: projectId,
       user_id: userId,
-      modules: [],       // runner reads actual modules from lastModules in the SQS payload
-      config: {},
+      modules: lastModules,
+      config: lastConfig,
       status: "queued",
       logs: [],
       action: "destroy",
@@ -113,6 +123,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Queue the destroy job
+  // C3/W3/W5: merge the original deploy config so the runner has vpc_cidr, environment, etc.
   const jobPayload = {
     action: "destroy",
     deploymentId: deployment.id,
@@ -120,7 +131,8 @@ export async function POST(req: NextRequest) {
     userId,
     modules: lastModules,
     config: {
-      aws_region:   project.aws_region ?? "us-east-1",
+      ...lastConfig,
+      aws_region:   project.aws_region ?? (lastConfig.aws_region as string) ?? "us-east-1",
       project_name: project.name.toLowerCase().replace(/[^a-z0-9-]/g, "-"),
     },
     awsRoleArn:    project.aws_role_arn,

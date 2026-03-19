@@ -180,7 +180,7 @@ async function processRecord(record: SQSRecord): Promise<void> {
       RoleArn:         job.awsRoleArn,
       RoleSessionName: `infraready-deploy-${deploymentId}`,
       ExternalId:      job.awsExternalId,
-      DurationSeconds: 3600,
+      DurationSeconds: 7200,
     }));
 
     credentials = {
@@ -440,15 +440,18 @@ async function destroyAll(params: {
   const awsAccountId = job.awsRoleArn.split(":")[4];
 
   // Destroy in reverse order so dependencies are removed cleanly
-  const MODULE_DESTROY_ORDER = ["security", "storage", "ecs", "rds", "vpc"];
+  const MODULE_DESTROY_ORDER = ["waf", "macie", "inspector-ssm", "backup", "kms", "security", "storage", "ecs", "rds", "vpc-endpoints", "vpc"];
   const toDestroy = MODULE_DESTROY_ORDER.filter((m) => job.modules.includes(m));
 
   if (toDestroy.length === 0) {
     await appendLog(deploymentId, "warn", "[InfraReady] No modules found to destroy — nothing to do.");
-    await updateDeployment(deploymentId, { status: "success", completed_at: new Date().toISOString() });
+    await updateDeployment(deploymentId, { status: "destroyed", completed_at: new Date().toISOString() });
     await supabase.from("projects").update({ status: "destroyed" }).eq("id", job.projectId);
     return;
   }
+
+  // W2: set status to "destroying" immediately so the UI reflects the in-progress state
+  await updateDeployment(deploymentId, { status: "destroying" });
 
   await appendLog(deploymentId, "info",
     `[InfraReady] Destroying modules in order: ${toDestroy.join(" → ")}`
@@ -481,7 +484,7 @@ async function destroyAll(params: {
   }
 
   await updateDeployment(deploymentId, {
-    status: "success",
+    status: "destroyed",
     completed_at: new Date().toISOString(),
     current_module: null,
   });
@@ -749,7 +752,14 @@ async function deployModuleWithRetry(params: {
         await appendLog(deploymentId, "error",
           `[InfraReady] Fatal error on ${moduleName} — not retrying: ${friendlyError(lastError.message)}`
         );
-        await cleanupModule(moduleName, tofuOpts(), deploymentId);
+        // W4: skip cleanup on pure auth failures — no resources were created, and
+        // calling destroy would just produce another misleading permission error.
+        const isAuthError = lastError.message.includes("AuthFailure") ||
+          lastError.message.includes("AccessDenied") ||
+          lastError.message.includes("InvalidClientTokenId");
+        if (!isAuthError) {
+          await cleanupModule(moduleName, tofuOpts(), deploymentId);
+        }
         throw lastError;
       }
 
