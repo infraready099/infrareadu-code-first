@@ -63,6 +63,7 @@ interface StepThreeData {
   dbEngine: DbEngine;
   dbInstance: string;
   alertEmail: string;
+  albDeletionProtection: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -753,9 +754,10 @@ function StepThree({
     };
 
     if (data.modules.ecs || data.modules["app-runner"]) {
-      config.container_port   = data.containerPort;
-      config.container_cpu    = data.containerCpu;
-      config.container_memory = data.containerMemory;
+      config.container_port          = data.containerPort;
+      config.container_cpu           = data.containerCpu;
+      config.container_memory        = data.containerMemory;
+      config.alb_deletion_protection = data.albDeletionProtection;
     }
 
     if (data.modules.rds) {
@@ -943,6 +945,29 @@ function StepThree({
         <p className="mt-1.5 text-xs text-gray-600">Cost alerts and security notifications.</p>
       </div>
 
+      {/* ALB deletion protection — only shown when ECS is selected */}
+      {(data.modules.ecs || data.modules["app-runner"]) && (
+        <div className="flex items-start justify-between gap-4 py-3 px-4 rounded-xl bg-gray-800/50 border border-gray-700/50">
+          <div>
+            <p className="text-sm font-medium text-gray-300">ALB deletion protection</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Prevents accidental load balancer deletion. Disable for dev/test environments so destroy works cleanly.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onChange({ albDeletionProtection: !data.albDeletionProtection })}
+            className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none ${
+              data.albDeletionProtection ? "bg-[#00E5FF]" : "bg-gray-600"
+            }`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${
+              data.albDeletionProtection ? "translate-x-5" : "translate-x-0"
+            }`} />
+          </button>
+        </div>
+      )}
+
       {deployError && (
         <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
           <AlertCircle className="w-4 h-4 shrink-0" />
@@ -1002,7 +1027,7 @@ function NewProjectPageInner() {
     awsRegion: "us-east-1", environment: "production", deploymentTier: "lean",
     modules: { ecs: true, rds: false, storage: false, security: true, "app-runner": false, "aurora-serverless": false },
     containerPort: 3000, containerCpu: 256, containerMemory: 512,
-    dbEngine: "postgres", dbInstance: "db.t3.micro", alertEmail: "",
+    dbEngine: "postgres", dbInstance: "db.t3.micro", alertEmail: "", albDeletionProtection: true,
   });
 
   // Resume wizard after GitHub App install redirects back with ?projectId=&step=2

@@ -304,16 +304,18 @@ function buildModuleVariables(config: ModuleConfig): Record<string, unknown> {
     case "ecs":
       return {
         ...base,
-        vpc_id:           config.variables.vpc_id            ?? "",
-        public_subnet_ids:  config.variables.public_subnet_ids  ?? [],
-        private_subnet_ids: config.variables.private_subnet_ids ?? [],
-        container_image:  config.variables.container_image    ?? "nginx:latest",
-        container_port:   config.variables.container_port     ?? 8080,
-        cpu:              config.variables.cpu               ?? 256,
-        memory:           config.variables.memory            ?? 512,
-        desired_count:    config.variables.desired_count     ?? 1,
-        enable_autoscaling: config.variables.enable_autoscaling ?? true,
-        health_check_path:  config.variables.health_check_path  ?? "/health",
+        vpc_id:                  config.variables.vpc_id                 ?? "",
+        public_subnet_ids:       config.variables.public_subnet_ids      ?? [],
+        private_subnet_ids:      config.variables.private_subnet_ids     ?? [],
+        container_image:         config.variables.container_image        ?? "nginx:latest",
+        container_port:          config.variables.container_port         ?? 8080,
+        cpu:                     config.variables.cpu                    ?? 256,
+        memory:                  config.variables.memory                 ?? 512,
+        desired_count:           config.variables.desired_count          ?? 1,
+        enable_autoscaling:      config.variables.enable_autoscaling     ?? true,
+        health_check_path:       config.variables.health_check_path      ?? "/health",
+        // Default ON (production safety). Set false for dev/test so destroy works cleanly.
+        alb_deletion_protection: config.variables.alb_deletion_protection ?? true,
       };
 
     case "storage":

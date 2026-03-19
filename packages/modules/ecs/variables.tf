@@ -96,6 +96,12 @@ variable "log_retention_days" {
   default     = 30
 }
 
+variable "alb_deletion_protection" {
+  description = "Enable ALB deletion protection. Set false for dev/test environments so tofu destroy can remove the load balancer cleanly."
+  type        = bool
+  default     = true
+}
+
 variable "tags" {
   description = "Additional tags."
   type        = map(string)

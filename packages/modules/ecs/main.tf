@@ -157,7 +157,7 @@ resource "aws_lb" "app" {
   security_groups    = [aws_security_group.alb.id]
   subnets            = var.public_subnet_ids
 
-  enable_deletion_protection = false # Must be false so tofu destroy can remove the ALB
+  enable_deletion_protection = var.alb_deletion_protection
   drop_invalid_header_fields = true # Security best practice
 
   access_logs {
