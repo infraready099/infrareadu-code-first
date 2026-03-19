@@ -10,73 +10,71 @@ const destroySchema = z.object({
 
 const sqs = new SQSClient({ region: process.env.AWS_REGION ?? "us-east-1" });
 
-// Service-role client — bypasses RLS, used for server-side operations.
-// We validate the user's identity separately via their auth token.
+// Service-role client — used only for writes that need to bypass RLS (insert deployment, update project)
 const adminClient = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
 export async function POST(req: NextRequest) {
-  // Resolve the calling user's identity.
-  // Try Authorization: Bearer header first (sent explicitly by wizard),
-  // then fall back to cookie-based session.
   const authHeader = req.headers.get("authorization");
   const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
 
-  let userId: string | undefined;
+  // Build a user-scoped Supabase client.
+  // If a Bearer token is present, inject it so RLS uses that identity.
+  // Otherwise fall back to the cookie-based server client.
+  // Either way, RLS on the projects table enforces ownership — no manual user_id check needed.
+  let userClient: ReturnType<typeof createClient>;
 
   if (bearerToken) {
-    // Validate token against Supabase servers — no local trust
-    const { data: { user }, error: authError } = await adminClient.auth.getUser(bearerToken);
-    if (authError) console.error("[destroy] Bearer token validation failed:", authError.message);
-    userId = user?.id;
+    userClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { global: { headers: { Authorization: `Bearer ${bearerToken}` } } },
+    );
+  } else {
+    userClient = await createServerClient() as unknown as ReturnType<typeof createClient>;
   }
 
-  if (!userId) {
-    // Cookie-based fallback — always use getUser() (server-validated), never getSession()
-    const supabase = await createServerClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    userId = user?.id;
-  }
-
-  if (!userId) {
+  // Verify identity
+  const { data: { user } } = await userClient.auth.getUser();
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const userId = user.id;
 
   const body = await req.json();
   const parsed = destroySchema.safeParse(body);
-
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid request", details: parsed.error.format() }, { status: 400 });
+    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
   const { projectId } = parsed.data;
 
-  // Use admin client (service role) to fetch project — bypasses RLS.
-  // We manually verify ownership below.
-  const { data: project, error: projectError } = await adminClient
+  // Fetch project through the user-scoped client — RLS automatically filters to projects this user owns.
+  // If project is null, either it doesn't exist or this user doesn't own it.
+  const { data: project, error: projectError } = await userClient
     .from("projects")
-    .select("id, name, aws_role_arn, aws_external_id, aws_region, aws_account_id, user_id, modules, status")
+    .select("id, name, aws_role_arn, aws_external_id, aws_region, aws_account_id, user_id, status")
     .eq("id", projectId)
     .single();
 
   if (projectError) {
-    console.error(`[destroy] DB error fetching project: projectId=${projectId}`, projectError);
+    console.error(`[destroy] DB error: projectId=${projectId} userId=${userId}`, projectError.message);
   }
 
   if (!project) {
-    console.error(`[destroy] Project not found: projectId=${projectId} userId=${userId}`);
-    return NextResponse.json({ error: "Project not found. Try starting a new project from the dashboard." }, { status: 404 });
-  }
-
-  if (project.user_id !== userId) {
-    console.error(`[destroy] Ownership mismatch: project.user_id=${project.user_id} userId=${userId}`);
-    return NextResponse.json({ error: "Project not found. Try starting a new project from the dashboard." }, { status: 404 });
+    return NextResponse.json(
+      { error: "Project not found. Make sure you are logged in as the project owner." },
+      { status: 404 }
+    );
   }
 
   if (!project.aws_role_arn) {
-    return NextResponse.json({ error: "AWS account not connected. Cannot destroy infrastructure that was never deployed." }, { status: 400 });
+    return NextResponse.json(
+      { error: "AWS account not connected. Cannot destroy infrastructure that was never deployed." },
+      { status: 400 }
+    );
   }
 
   // Reject only active deploy operations — destroying is allowed to retry (runner may have crashed)
@@ -87,8 +85,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // C3/W3/W5: fetch both modules and full config from the last successful deployment
-  // so the runner has the original vpc_cidr, environment, and other settings needed for destroy.
+  // Fetch modules + config from the last successful deployment
   const { data: lastDeployment } = await adminClient
     .from("deployments")
     .select("modules, config")
@@ -102,7 +99,6 @@ export async function POST(req: NextRequest) {
   const lastConfig: Record<string, unknown> = (lastDeployment?.config as Record<string, unknown>) ?? {};
 
   // Create destroy deployment record
-  // I3: store the actual module list so the UI can show what will be destroyed
   const { data: deployment, error: dbError } = await adminClient
     .from("deployments")
     .insert({
@@ -123,7 +119,6 @@ export async function POST(req: NextRequest) {
   }
 
   // Queue the destroy job
-  // C3/W3/W5: merge the original deploy config so the runner has vpc_cidr, environment, etc.
   const jobPayload = {
     action: "destroy",
     deploymentId: deployment.id,
@@ -141,9 +136,9 @@ export async function POST(req: NextRequest) {
 
   if (process.env.DEPLOY_QUEUE_URL) {
     await sqs.send(new SendMessageCommand({
-      QueueUrl: process.env.DEPLOY_QUEUE_URL,
-      MessageBody: JSON.stringify(jobPayload),
-      MessageGroupId: projectId,
+      QueueUrl:              process.env.DEPLOY_QUEUE_URL,
+      MessageBody:           JSON.stringify(jobPayload),
+      MessageGroupId:        projectId,
       MessageDeduplicationId: deployment.id,
     }));
   } else {
