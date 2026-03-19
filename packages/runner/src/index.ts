@@ -180,7 +180,7 @@ async function processRecord(record: SQSRecord): Promise<void> {
       RoleArn:         job.awsRoleArn,
       RoleSessionName: `infraready-deploy-${deploymentId}`,
       ExternalId:      job.awsExternalId,
-      DurationSeconds: 7200,
+      DurationSeconds: 3600, // AWS hard-caps role chaining at 1 hour regardless of MaxSessionDuration
     }));
 
     credentials = {
