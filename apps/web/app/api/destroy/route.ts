@@ -51,12 +51,13 @@ export async function POST(req: NextRequest) {
 
   const { projectId } = parsed.data;
 
-  // Fetch project through the user-scoped client — RLS automatically filters to projects this user owns.
-  // If project is null, either it doesn't exist or this user doesn't own it.
-  const { data: project, error: projectError } = await userClient
+  // Fetch project via admin client, filtering by BOTH projectId AND userId.
+  // This is equivalent to RLS — if the row is null, either it doesn't exist or this user doesn't own it.
+  const { data: project, error: projectError } = await adminClient
     .from("projects")
     .select("id, name, aws_role_arn, aws_external_id, aws_region, aws_account_id, user_id, status")
     .eq("id", projectId)
+    .eq("user_id", userId)
     .single();
 
   if (projectError) {
@@ -64,8 +65,9 @@ export async function POST(req: NextRequest) {
   }
 
   if (!project) {
+    console.error(`[destroy] Project not found or ownership mismatch: projectId=${projectId} userId=${userId} dbErr=${projectError?.message}`);
     return NextResponse.json(
-      { error: "Project not found. Make sure you are logged in as the project owner." },
+      { error: `Project not found (uid=${userId?.slice(0,8)}, proj=${projectId.slice(0,8)}). Try signing out and back in.` },
       { status: 404 }
     );
   }
