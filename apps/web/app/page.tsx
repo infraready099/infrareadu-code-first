@@ -869,6 +869,88 @@ export default async function LandingPage() {
       </section>
 
       {/* ════════════════════════════════════════════════════════
+          AWS ACTIVATE CREDITS
+      ════════════════════════════════════════════════════════ */}
+      <section
+        id="aws-credits"
+        className="py-28 px-6"
+        style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}
+      >
+        <div className="max-w-[1100px] mx-auto">
+          <div className="rounded-2xl overflow-hidden relative"
+            style={{
+              background: "linear-gradient(135deg, rgba(0,229,255,0.06) 0%, rgba(0,0,0,0) 60%)",
+              border: "1px solid rgba(0,229,255,0.15)",
+            }}
+          >
+            {/* Glow */}
+            <div className="absolute top-0 left-0 w-64 h-64 rounded-full pointer-events-none"
+              style={{ background: "radial-gradient(circle, rgba(0,229,255,0.08) 0%, transparent 70%)", transform: "translate(-30%, -30%)" }}
+            />
+
+            <div className="relative px-8 py-12 md:px-16 md:py-16 flex flex-col md:flex-row items-start md:items-center gap-10">
+              {/* Left */}
+              <div className="flex-1">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold mb-5"
+                  style={{ background: "rgba(0,229,255,0.08)", border: "1px solid rgba(0,229,255,0.2)", color: "#00E5FF" }}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#00E5FF" }} />
+                  AWS Activate
+                </div>
+                <h2 className="font-bold text-white mb-4"
+                  style={{ fontSize: "clamp(24px, 3vw, 40px)", letterSpacing: "-0.03em", lineHeight: 1.15 }}
+                >
+                  Have AWS Activate credits?
+                  <br />
+                  <span style={{ color: "#00E5FF" }}>Deploy them in 20 minutes.</span>
+                </h2>
+                <p className="text-base mb-6 max-w-lg" style={{ color: "#94A3B8", lineHeight: "1.7" }}>
+                  YC, Techstars, and AWS Activate give startups up to <strong className="text-white">$300,000 in AWS credits.</strong> Most founders let them expire because they can't figure out how to deploy anything. InfraReady turns those credits into running production infrastructure — VPC, RDS, ECS, security baseline — in one click.
+                </p>
+                <div className="flex flex-wrap gap-4 text-sm" style={{ color: "#64748B" }}>
+                  {[
+                    "No DevOps hire needed",
+                    "Credits stay in your account",
+                    "Infrastructure you own forever",
+                  ].map((item) => (
+                    <span key={item} className="flex items-center gap-1.5">
+                      <Check size={13} className="text-[#00E5FF]" />
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Right — credit tiers */}
+              <div className="shrink-0 w-full md:w-72 flex flex-col gap-3">
+                {[
+                  { tier: "AWS Activate Founders", amount: "$1,000", color: "#64748B" },
+                  { tier: "AWS Activate Portfolio", amount: "$5,000–$25,000", color: "#94A3B8" },
+                  { tier: "YC + Techstars", amount: "Up to $100,000", color: "#00E5FF" },
+                  { tier: "AWS Activate Select", amount: "Up to $300,000", color: "#00E5FF" },
+                ].map((c) => (
+                  <div key={c.tier} className="flex items-center justify-between px-4 py-3 rounded-xl"
+                    style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
+                  >
+                    <span className="text-sm" style={{ color: "#94A3B8" }}>{c.tier}</span>
+                    <span className="text-sm font-bold" style={{ color: c.color }}>{c.amount}</span>
+                  </div>
+                ))}
+                <Link
+                  href="/login"
+                  className="mt-2 w-full flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-sm font-bold text-black transition-all duration-200"
+                  style={{ background: "#00E5FF", boxShadow: "0 0 24px rgba(0,229,255,0.35)" }}
+                >
+                  Deploy my credits now
+                  <ArrowRight size={15} />
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ════════════════════════════════════════════════════════
           FREE TIER SECTION
       ════════════════════════════════════════════════════════ */}
       <section
