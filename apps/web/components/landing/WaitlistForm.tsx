@@ -56,8 +56,8 @@ export function WaitlistForm() {
   if (state === "success") {
     return (
       <div className="text-center py-8">
-        <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#f97316]/10 border border-[#f97316]/20 mb-4">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#00E5FF]/10 border border-[#00E5FF]/20 mb-4">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#00E5FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="20 6 9 17 4 12" />
           </svg>
         </div>
