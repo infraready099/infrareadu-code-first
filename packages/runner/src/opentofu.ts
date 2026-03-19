@@ -233,7 +233,7 @@ async function tryImportOrphans(
         // Flow Log
         try {
           const flResult = await ec2.send(new DescribeFlowLogsCommand({
-            Filters: [{ Name: "resource-id", Values: [vpcId] }],
+            Filter: [{ Name: "resource-id", Values: [vpcId] }],
           }));
           const flowLogId = flResult.FlowLogs?.[0]?.FlowLogId;
           if (flowLogId) {
