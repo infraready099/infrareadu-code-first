@@ -79,10 +79,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "AWS account not connected. Cannot destroy infrastructure that was never deployed." }, { status: 400 });
   }
 
-  // C5: reject concurrent operations — one deploy/destroy at a time per project
-  if (["deploying", "running", "destroying"].includes(project.status)) {
+  // Reject only active deploy operations — destroying is allowed to retry (runner may have crashed)
+  if (["deploying", "running"].includes(project.status)) {
     return NextResponse.json(
-      { error: `Project is currently ${project.status}. Wait for it to finish before starting a new operation.` },
+      { error: `Project is currently ${project.status}. Wait for it to finish before destroying.` },
       { status: 409 }
     );
   }

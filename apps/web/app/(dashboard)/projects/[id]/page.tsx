@@ -135,10 +135,19 @@ export default async function ProjectDetailPage({
   const logs: LogLine[] = Array.isArray(deployment?.logs) ? (deployment.logs as LogLine[]) : [];
 
   const canRedeploy = p.status === "success" || p.status === "failed" || p.status === "destroyed";
-  const canDestroy  = p.status === "success" || p.status === "failed";
+  // Allow destroy retry when stuck in "destroying" (runner may have crashed without finishing)
+  const canDestroy  = p.status === "success" || p.status === "failed" || p.status === "destroying";
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
+      {/* Destroying banner */}
+      {p.status === "destroying" && (
+        <div className="mb-6 flex items-center gap-3 px-4 py-3 rounded-xl bg-red-950/40 border border-red-900/50 text-red-400 text-sm">
+          <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+          <span>Tearing down AWS infrastructure — this takes 5–10 minutes. Do not close this tab.</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between mb-8">
         <div>

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2 } from "lucide-react";
+import { Trash2, Loader2 } from "lucide-react";
 
 export function DestroyButton({ projectId }: { projectId: string }) {
   const [confirming, setConfirming] = useState(false);
@@ -21,19 +21,33 @@ export function DestroyButton({ projectId }: { projectId: string }) {
       });
       const data = await res.json();
       if (!res.ok) {
+        // Keep confirming=true so the error is visible in the confirm UI
         setError(data.error ?? "Failed to start destroy");
         setLoading(false);
-        setConfirming(false);
         return;
       }
-      // Redirect to the deployment log so user can watch progress
-      // I2: router.push already re-fetches server component data — no need for router.refresh()
       router.push(`/projects/${projectId}?deployment=${data.deploymentId}`);
     } catch {
       setError("Network error — please try again");
       setLoading(false);
-      setConfirming(false);
     }
+  }
+
+  // Error state — always visible regardless of confirming
+  if (error) {
+    return (
+      <div className="flex flex-col gap-1.5 items-end">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-red-400 max-w-xs text-right">{error}</span>
+          <button
+            onClick={() => { setError(null); setConfirming(false); }}
+            className="text-sm px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors"
+          >
+            OK
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (confirming) {
@@ -43,9 +57,16 @@ export function DestroyButton({ projectId }: { projectId: string }) {
         <button
           onClick={handleDestroy}
           disabled={loading}
-          className="text-sm px-3 py-1.5 rounded bg-red-600 hover:bg-red-500 text-white font-medium transition-colors disabled:opacity-50"
+          className="text-sm px-3 py-1.5 rounded bg-red-600 hover:bg-red-500 text-white font-medium transition-colors disabled:opacity-50 flex items-center gap-1.5"
         >
-          {loading ? "Starting..." : "Yes, destroy"}
+          {loading ? (
+            <>
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Starting...
+            </>
+          ) : (
+            "Yes, destroy"
+          )}
         </button>
         <button
           onClick={() => setConfirming(false)}
@@ -54,7 +75,6 @@ export function DestroyButton({ projectId }: { projectId: string }) {
         >
           Cancel
         </button>
-        {error && <span className="text-sm text-red-400">{error}</span>}
       </div>
     );
   }
