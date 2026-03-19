@@ -9,7 +9,14 @@ import { writeFileSync, mkdirSync, cpSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { S3Client } from "@aws-sdk/client-s3";
-import { EC2Client, DescribeVpcsCommand, DescribeAddressesCommand } from "@aws-sdk/client-ec2";
+import {
+  EC2Client,
+  DescribeVpcsCommand,
+  DescribeAddressesCommand,
+  DescribeSubnetsCommand,
+  DescribeInternetGatewaysCommand,
+  DescribeFlowLogsCommand,
+} from "@aws-sdk/client-ec2";
 import { ElasticLoadBalancingV2Client, DescribeTargetGroupsCommand } from "@aws-sdk/client-elastic-load-balancing-v2";
 import {
   SecretsManagerClient,
@@ -174,16 +181,71 @@ async function tryImportOrphans(
       const vpcId = result.Vpcs?.[0]?.VpcId;
       if (vpcId) {
         const tfvarsPath = join(workDir, "terraform.tfvars.json");
+
+        // VPC
         try {
           await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, "aws_vpc.this", vpcId], { cwd: workDir, env });
           await onLog("info", `[tofu] Imported existing VPC ${vpcId} into state`);
-        } catch {
-          // Already in state — fine
-        }
+        } catch { /* already in state */ }
+
+        // Subnets — look up by VPC ID, then match by CIDR to terraform address
+        try {
+          const subnetResult = await ec2.send(new DescribeSubnetsCommand({
+            Filters: [{ Name: "vpc-id", Values: [vpcId] }],
+          }));
+          const subnets = subnetResult.Subnets ?? [];
+
+          const publicCidrs  = ["10.0.0.0/20", "10.0.16.0/20"];
+          const privateCidrs = ["10.0.128.0/20", "10.0.144.0/20"];
+
+          for (let i = 0; i < publicCidrs.length; i++) {
+            const subnet = subnets.find((s) => s.CidrBlock === publicCidrs[i]);
+            if (!subnet?.SubnetId) continue;
+            try {
+              await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, `aws_subnet.public[${i}]`, subnet.SubnetId], { cwd: workDir, env });
+              await onLog("info", `[tofu] Imported existing subnet ${subnet.SubnetId} as public[${i}]`);
+            } catch { /* already in state */ }
+          }
+          for (let i = 0; i < privateCidrs.length; i++) {
+            const subnet = subnets.find((s) => s.CidrBlock === privateCidrs[i]);
+            if (!subnet?.SubnetId) continue;
+            try {
+              await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, `aws_subnet.private[${i}]`, subnet.SubnetId], { cwd: workDir, env });
+              await onLog("info", `[tofu] Imported existing subnet ${subnet.SubnetId} as private[${i}]`);
+            } catch { /* already in state */ }
+          }
+        } catch { /* subnet lookup failed — proceed */ }
+
+        // Internet Gateway
+        try {
+          const igwResult = await ec2.send(new DescribeInternetGatewaysCommand({
+            Filters: [{ Name: "attachment.vpc-id", Values: [vpcId] }],
+          }));
+          const igwId = igwResult.InternetGateways?.[0]?.InternetGatewayId;
+          if (igwId) {
+            try {
+              await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, "aws_internet_gateway.this", igwId], { cwd: workDir, env });
+              await onLog("info", `[tofu] Imported existing IGW ${igwId} into state`);
+            } catch { /* already in state */ }
+          }
+        } catch { /* IGW lookup failed — proceed */ }
+
+        // Flow Log
+        try {
+          const flResult = await ec2.send(new DescribeFlowLogsCommand({
+            Filters: [{ Name: "resource-id", Values: [vpcId] }],
+          }));
+          const flowLogId = flResult.FlowLogs?.[0]?.FlowLogId;
+          if (flowLogId) {
+            try {
+              await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, "aws_flow_log.this[0]", flowLogId], { cwd: workDir, env });
+              await onLog("info", `[tofu] Imported existing flow log ${flowLogId} into state`);
+            } catch { /* already in state */ }
+          }
+        } catch { /* flow log lookup failed — proceed */ }
       }
 
       // Import existing EIPs for NAT gateways (tagged with the project name)
-      // Prevents AddressLimitExceeded when retrying after a partial deploy
       const eipResult = await ec2.send(new DescribeAddressesCommand({
         Filters: [{ Name: "tag:Project", Values: [String(config.project_name)] }],
       }));
@@ -195,9 +257,7 @@ async function tryImportOrphans(
         try {
           await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, `aws_eip.nat[${i}]`, allocationId], { cwd: workDir, env });
           await onLog("info", `[tofu] Imported existing EIP ${allocationId} as nat[${i}]`);
-        } catch {
-          // Already in state — fine
-        }
+        } catch { /* already in state */ }
       }
     } catch {
       // EC2 lookup failed (permissions, network) — proceed without import
