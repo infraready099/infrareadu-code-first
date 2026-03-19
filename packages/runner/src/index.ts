@@ -456,9 +456,9 @@ async function preDestroyEcs(params: {
   const clientConfig = {
     region,
     credentials: {
-      accessKeyId:     credentials.AccessKeyId,
-      secretAccessKey: credentials.SecretAccessKey,
-      sessionToken:    credentials.SessionToken,
+      accessKeyId:     credentials.accessKeyId,
+      secretAccessKey: credentials.secretAccessKey,
+      sessionToken:    credentials.sessionToken,
     },
   };
   const elbv2 = new ElasticLoadBalancingV2Client(clientConfig);
