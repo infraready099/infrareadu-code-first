@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2, Loader2 } from "lucide-react";
+import { createBrowserClient } from "@supabase/ssr";
 
 export function DestroyButton({ projectId }: { projectId: string }) {
   const [confirming, setConfirming] = useState(false);
@@ -14,14 +15,24 @@ export function DestroyButton({ projectId }: { projectId: string }) {
     setLoading(true);
     setError(null);
     try {
+      // Send Bearer token so the API can verify identity — cookie auth is unreliable in client fetches
+      const supabase = createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      );
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
       const res = await fetch("/api/destroy", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ projectId }),
       });
       const data = await res.json();
       if (!res.ok) {
-        // Keep confirming=true so the error is visible in the confirm UI
         setError(data.error ?? "Failed to start destroy");
         setLoading(false);
         return;
@@ -36,16 +47,14 @@ export function DestroyButton({ projectId }: { projectId: string }) {
   // Error state — always visible regardless of confirming
   if (error) {
     return (
-      <div className="flex flex-col gap-1.5 items-end">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-red-400 max-w-xs text-right">{error}</span>
-          <button
-            onClick={() => { setError(null); setConfirming(false); }}
-            className="text-sm px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors"
-          >
-            OK
-          </button>
-        </div>
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-red-400 max-w-xs text-right">{error}</span>
+        <button
+          onClick={() => { setError(null); setConfirming(false); }}
+          className="text-sm px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors"
+        >
+          OK
+        </button>
       </div>
     );
   }
