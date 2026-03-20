@@ -16,6 +16,9 @@ import {
   DescribeSubnetsCommand,
   DescribeInternetGatewaysCommand,
   DescribeFlowLogsCommand,
+  DescribeNatGatewaysCommand,
+  DeleteNatGatewayCommand,
+  DescribeRouteTablesCommand,
 } from "@aws-sdk/client-ec2";
 import {
   ElasticLoadBalancingV2Client,
@@ -270,6 +273,8 @@ async function tryImportOrphans(
         ],
       }));
       const eips = eipResult.Addresses ?? [];
+      const eipAllocationIds = eips.map((e) => e.AllocationId).filter(Boolean) as string[];
+
       for (let i = 0; i < eips.length; i++) {
         const allocationId = eips[i].AllocationId;
         if (!allocationId) continue;
@@ -278,6 +283,102 @@ async function tryImportOrphans(
           await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, `aws_eip.nat[${i}]`, allocationId], { cwd: workDir, env });
           await onLog("info", `[tofu] Imported existing EIP ${allocationId} as nat[${i}]`);
         } catch { /* already in state */ }
+      }
+
+      // NAT Gateway cleanup + import
+      // Failed NAT gateways hold EIP associations indefinitely — must delete them before
+      // tofu apply can create new ones. Available ones are imported so tofu doesn't recreate.
+      if (vpcId && eipAllocationIds.length > 0) {
+        try {
+          const tfvarsPath = join(workDir, "terraform.tfvars.json");
+          const ngwResult = await ec2.send(new DescribeNatGatewaysCommand({
+            Filter: [
+              { Name: "vpc-id", Values: [vpcId] },
+              { Name: "state", Values: ["pending", "available", "failed"] },
+            ],
+          }));
+          const allNgws = ngwResult.NatGateways ?? [];
+
+          // Separate available ones (import) from failed/pending ones (delete to free EIPs)
+          const availableNgws = allNgws.filter((ngw) => ngw.State === "available");
+          const failedNgws    = allNgws.filter((ngw) => ngw.State === "failed" || ngw.State === "pending");
+
+          // Import available NAT gateways ordered by AZ so index matches EIP index
+          const ngwsSorted = availableNgws.sort((a, b) =>
+            (a.Tags?.find((t) => t.Key === "Name")?.Value ?? "").localeCompare(
+              b.Tags?.find((t) => t.Key === "Name")?.Value ?? ""
+            )
+          );
+          for (let i = 0; i < ngwsSorted.length; i++) {
+            const ngwId = ngwsSorted[i].NatGatewayId;
+            if (!ngwId) continue;
+            try {
+              await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, `aws_nat_gateway.this[${i}]`, ngwId], { cwd: workDir, env });
+              await onLog("info", `[tofu] Imported existing NAT gateway ${ngwId} as this[${i}]`);
+            } catch { /* already in state or index mismatch — fine */ }
+          }
+
+          // Delete failed NAT gateways so their EIPs are released
+          for (const ngw of failedNgws) {
+            if (!ngw.NatGatewayId) continue;
+            try {
+              await ec2.send(new DeleteNatGatewayCommand({ NatGatewayId: ngw.NatGatewayId }));
+              await onLog("info", `[tofu] Deleted failed NAT gateway ${ngw.NatGatewayId} to release EIP`);
+            } catch { /* may already be deleting */ }
+          }
+
+          // Wait for failed ones to finish deleting (max 60s)
+          if (failedNgws.length > 0) {
+            await onLog("info", `[tofu] Waiting for ${failedNgws.length} failed NAT gateway(s) to release EIPs...`);
+            for (let attempt = 0; attempt < 12; attempt++) {
+              await new Promise((r) => setTimeout(r, 5_000));
+              const check = await ec2.send(new DescribeNatGatewaysCommand({
+                Filter: [
+                  { Name: "nat-gateway-id", Values: failedNgws.map((n) => n.NatGatewayId!).filter(Boolean) },
+                  { Name: "state", Values: ["pending", "available", "failed"] },
+                ],
+              }));
+              if ((check.NatGateways ?? []).length === 0) break;
+            }
+            await onLog("info", `[tofu] EIPs released — proceeding`);
+          }
+        } catch { /* NAT gateway cleanup failed — proceed and let tofu handle it */ }
+      }
+
+      // Route table + association import
+      // Route tables are created during apply but associations can conflict on retry
+      if (vpcId) {
+        try {
+          const tfvarsPath = join(workDir, "terraform.tfvars.json");
+          const rtResult = await ec2.send(new DescribeRouteTablesCommand({
+            Filters: [
+              { Name: "vpc-id", Values: [vpcId] },
+              { Name: "tag:Name", Values: [`${name}-rt-public`] },
+            ],
+          }));
+          const publicRt = rtResult.RouteTables?.[0];
+          if (publicRt?.RouteTableId) {
+            try {
+              await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, "aws_route_table.public", publicRt.RouteTableId], { cwd: workDir, env });
+              await onLog("info", `[tofu] Imported existing public route table ${publicRt.RouteTableId}`);
+            } catch { /* already in state */ }
+
+            // Import route table associations — match by subnet ID to get correct index
+            for (const assoc of publicRt.Associations ?? []) {
+              if (!assoc.SubnetId || !assoc.RouteTableAssociationId || assoc.Main) continue;
+              // Look up which public subnet index this is
+              const subnetResult2 = await ec2.send(new DescribeSubnetsCommand({ SubnetIds: [assoc.SubnetId] }));
+              const subnetName = subnetResult2.Subnets?.[0]?.Tags?.find((t) => t.Key === "Name")?.Value ?? "";
+              // us-east-1a = index 0, us-east-1b = index 1
+              const idx = subnetName.endsWith("us-east-1a") ? 0 : subnetName.endsWith("us-east-1b") ? 1 : -1;
+              if (idx < 0) continue;
+              try {
+                await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, `aws_route_table_association.public[${idx}]`, assoc.RouteTableAssociationId], { cwd: workDir, env });
+                await onLog("info", `[tofu] Imported public RT association ${assoc.RouteTableAssociationId} as public[${idx}]`);
+              } catch { /* already in state */ }
+            }
+          }
+        } catch { /* route table lookup failed — proceed */ }
       }
     } catch {
       // EC2 lookup failed (permissions, network) — proceed without import
