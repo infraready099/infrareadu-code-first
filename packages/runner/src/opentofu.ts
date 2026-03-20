@@ -17,7 +17,12 @@ import {
   DescribeInternetGatewaysCommand,
   DescribeFlowLogsCommand,
 } from "@aws-sdk/client-ec2";
-import { ElasticLoadBalancingV2Client, DescribeTargetGroupsCommand } from "@aws-sdk/client-elastic-load-balancing-v2";
+import {
+  ElasticLoadBalancingV2Client,
+  DescribeTargetGroupsCommand,
+  DescribeLoadBalancersCommand as DescribeALBsCommand,
+} from "@aws-sdk/client-elastic-load-balancing-v2";
+import { ECRClient, DescribeRepositoriesCommand } from "@aws-sdk/client-ecr";
 import {
   SecretsManagerClient,
   DescribeSecretCommand,
@@ -307,37 +312,51 @@ async function tryImportOrphans(
     }
   }
 
-  // Look up ELB Target Group ARN by name so we can import it
+  // Look up ELB Target Group + ALB ARNs and ECR repo name for ECS imports
   let tgArn = "";
+  let albArn = "";
+  let ecrRepoName = "";
   if (module === "ecs") {
+    const elbCreds = {
+      accessKeyId: env.AWS_ACCESS_KEY_ID!,
+      secretAccessKey: env.AWS_SECRET_ACCESS_KEY!,
+      sessionToken: env.AWS_SESSION_TOKEN,
+    };
     try {
-      const elb = new ElasticLoadBalancingV2Client({
-        region,
-        credentials: {
-          accessKeyId: env.AWS_ACCESS_KEY_ID!,
-          secretAccessKey: env.AWS_SECRET_ACCESS_KEY!,
-          sessionToken: env.AWS_SESSION_TOKEN,
-        },
-      });
+      const elb = new ElasticLoadBalancingV2Client({ region, credentials: elbCreds });
       const tgResult = await elb.send(new DescribeTargetGroupsCommand({ Names: [`${name}-tg`] }));
       tgArn = tgResult.TargetGroups?.[0]?.TargetGroupArn ?? "";
-    } catch {
-      // TG doesn't exist yet — fine
-    }
+    } catch { /* TG doesn't exist yet — fine */ }
+
+    try {
+      const elb = new ElasticLoadBalancingV2Client({ region, credentials: elbCreds });
+      const albResult = await elb.send(new DescribeALBsCommand({ Names: [`${name}-alb`] }));
+      albArn = albResult.LoadBalancers?.[0]?.LoadBalancerArn ?? "";
+    } catch { /* ALB doesn't exist yet — fine */ }
+
+    try {
+      const ecr = new ECRClient({ region, credentials: elbCreds });
+      const ecrResult = await ecr.send(new DescribeRepositoriesCommand({ repositoryNames: [`${name}-app`] }));
+      ecrRepoName = ecrResult.repositories?.[0]?.repositoryName ?? "";
+    } catch { /* ECR repo doesn't exist yet — fine */ }
   }
 
   // Map of module → [ [resource_address, resource_id], ... ]
+  // Resource addresses MUST match exactly what's declared in the module's main.tf
   const imports: Record<string, [string, string][]> = {
     vpc: [
       ["aws_cloudwatch_log_group.flow_logs[0]", `/infraready/${name}/vpc-flow-logs`],
       ["aws_iam_role.flow_logs[0]",             `${name}-vpc-flow-logs-role`],
     ],
     ecs: [
-      ["aws_cloudwatch_log_group.app",    `/infraready/${name}/ecs`],
-      ["aws_iam_role.ecs_task",           `${name}-ecs-task-role`],
-      ["aws_iam_role.ecs_execution",      `${name}-ecs-execution-role`],
-      ["aws_s3_bucket.alb_logs",          `${name}-alb-logs-${accountId}`],
-      ...(tgArn ? [["aws_lb_target_group.app", tgArn] as [string, string]] : []),
+      // Addresses match ecs/main.tf resource declarations exactly
+      ["aws_cloudwatch_log_group.app",      `/infraready/${name}/ecs`],
+      ["aws_iam_role.task",                 `${name}-ecs-task-role`],
+      ["aws_iam_role.task_execution",       `${name}-ecs-execution-role`],
+      ["aws_s3_bucket.alb_logs",            `${name}-alb-logs-${accountId}`],
+      ...(ecrRepoName ? [["aws_ecr_repository.app", ecrRepoName] as [string, string]] : []),
+      ...(tgArn       ? [["aws_lb_target_group.app", tgArn]      as [string, string]] : []),
+      ...(albArn      ? [["aws_lb.app",              albArn]      as [string, string]] : []),
     ],
     rds: [
       ["aws_cloudwatch_log_group.rds",    `/infraready/${name}/rds`],
