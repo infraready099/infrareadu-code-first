@@ -18,16 +18,19 @@ variable "aws_region" {
 variable "vpc_id" {
   description = "VPC ID (from VPC module output)."
   type        = string
+  default     = "" # Not needed during destroy — IDs come from state
 }
 
 variable "public_subnet_ids" {
   description = "Public subnet IDs for the ALB (from VPC module output)."
   type        = list(string)
+  default     = [] # Not needed during destroy — IDs come from state
 }
 
 variable "private_subnet_ids" {
   description = "Private subnet IDs for ECS tasks (from VPC module output)."
   type        = list(string)
+  default     = [] # Not needed during destroy — IDs come from state
 }
 
 variable "domain_name" {
