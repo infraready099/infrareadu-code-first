@@ -448,11 +448,14 @@ async function processRecord(record: SQSRecord): Promise<void> {
 
 async function preDestroyEcs(params: {
   projectName: string;
+  environment: string;
   region: string;
   credentials: Credentials;
   deploymentId: string;
 }): Promise<void> {
-  const { projectName, region, credentials, deploymentId } = params;
+  const { projectName, environment, region, credentials, deploymentId } = params;
+  // Matches local.name in ecs/main.tf: "${var.project_name}-${var.environment}"
+  const localName = `${projectName}-${environment}`;
   const clientConfig = {
     region,
     credentials: {
@@ -464,11 +467,12 @@ async function preDestroyEcs(params: {
   const elbv2 = new ElasticLoadBalancingV2Client(clientConfig);
   const ecs   = new ECSClient(clientConfig);
 
-  // 1. Disable deletion protection on all ALBs tagged with this project
+  // 1. Disable deletion protection on all ALBs for this project
+  // ALB name = "${local.name}-alb" = "${projectName}-${environment}-alb"
   try {
     const lbs = await elbv2.send(new DescribeLoadBalancersCommand({}));
     const projectAlbs = (lbs.LoadBalancers ?? []).filter((lb) =>
-      lb.LoadBalancerName?.startsWith(projectName)
+      lb.LoadBalancerName?.startsWith(localName)
     );
     for (const lb of projectAlbs) {
       if (!lb.LoadBalancerArn) continue;
@@ -483,8 +487,9 @@ async function preDestroyEcs(params: {
   }
 
   // 2. Scale ECS service to 0 and stop all running tasks so ENIs are released
+  // Cluster name = "${local.name}-cluster" = "${projectName}-${environment}-cluster"
   try {
-    const clusterName = `${projectName}-cluster`;
+    const clusterName = `${localName}-cluster`;
     const servicesRes = await ecs.send(new ListServicesCommand({ cluster: clusterName }));
     for (const serviceArn of servicesRes.serviceArns ?? []) {
       await ecs.send(new UpdateServiceCommand({
@@ -542,7 +547,8 @@ async function destroyAll(params: {
     // This must happen before tofu destroy or subnet/IGW deletion will hang indefinitely
     if (moduleName === "ecs") {
       const projectName = (job.config.project_name as string) ?? job.projectId.slice(0, 8);
-      await preDestroyEcs({ projectName, region, credentials, deploymentId });
+      const environment = (job.config.environment as string) ?? "production";
+      await preDestroyEcs({ projectName, environment, region, credentials, deploymentId });
     }
 
     const moduleConfig = buildModuleConfig(moduleName, job.config, {}, {});
