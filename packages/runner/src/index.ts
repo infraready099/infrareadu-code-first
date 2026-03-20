@@ -10,7 +10,7 @@
  *   On permanent failure: auto-destroy all created resources → failed
  */
 
-import { SQSEvent, SQSRecord } from "aws-lambda";
+import { SQSEvent, SQSRecord, Context } from "aws-lambda";
 import { STSClient, AssumeRoleCommand } from "@aws-sdk/client-sts";
 import {
   ElasticLoadBalancingV2Client,
@@ -163,11 +163,55 @@ type Credentials = {
 
 // ─── Lambda handler ──────────────────────────────────────────────────────────
 
-export const handler = async (event: SQSEvent): Promise<void> => {
+export const handler = async (event: SQSEvent, context: Context): Promise<void> => {
   for (const record of event.Records) {
-    await processRecord(record);
+    await processRecordSafe(record, context.getRemainingTimeInMillis());
   }
 };
+
+/**
+ * Wraps processRecord with a Lambda-aware timeout guard.
+ * If the deployment is still running when Lambda is 60s from timing out,
+ * we mark it "failed" so it doesn't stay stuck at "Deploying" forever.
+ *
+ * Usage: replace processRecord(record) with processRecordWithTimeout(record, context)
+ * when AWS Lambda context (context.getRemainingTimeInMillis) is available.
+ */
+async function processRecordSafe(record: SQSRecord, remainingMs: number): Promise<void> {
+  const job: DeployJob = JSON.parse(record.body);
+  const { deploymentId, projectId } = job;
+
+  // Set a safety timer 60s before Lambda would timeout
+  const safetyMs = Math.max(remainingMs - 60_000, 0);
+  let timedOut = false;
+
+  const timeoutHandle = setTimeout(async () => {
+    timedOut = true;
+    console.error(`[timeout-guard] Deployment ${deploymentId} approaching Lambda timeout — marking failed`);
+    try {
+      await appendLog(deploymentId, "error",
+        "\n[InfraReady] Deployment exceeded the 15-minute time limit. " +
+        "This usually means NAT Gateway creation is taking longer than expected. " +
+        "Click \"Deploy Again\" — InfraReady will resume from where it left off."
+      );
+      await updateDeployment(deploymentId, {
+        status:       "failed",
+        error:        "Deployment timed out after 14 minutes. Click Deploy Again to resume.",
+        completed_at: new Date().toISOString(),
+        current_module: null,
+      });
+      await supabase.from("projects").update({ status: "failed" }).eq("id", projectId);
+    } catch (e) {
+      console.error("[timeout-guard] Failed to update status:", e);
+    }
+  }, safetyMs);
+
+  try {
+    await processRecord(record);
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+}
 
 // ─── Main deployment flow ─────────────────────────────────────────────────────
 
@@ -905,7 +949,9 @@ function buildModuleConfig(
         ...base,
         vpc_cidr:           config.vpc_cidr ?? "10.0.0.0/16",
         enable_nat_gateway: config.enable_nat ?? true,
-        single_nat_gateway: config.environment !== "production",
+        // Default to single NAT gateway for all envs — saves 5+ minutes on deploy and ~$90/mo.
+        // Users who need multi-AZ NAT HA can enable via wizard (single_nat=false in config).
+        single_nat_gateway: config.single_nat !== false,
         enable_flow_logs:   true,
       };
 

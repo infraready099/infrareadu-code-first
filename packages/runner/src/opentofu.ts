@@ -26,6 +26,7 @@ import {
   DescribeLoadBalancersCommand as DescribeALBsCommand,
 } from "@aws-sdk/client-elastic-load-balancing-v2";
 import { ECRClient, DescribeRepositoriesCommand } from "@aws-sdk/client-ecr";
+import { ECSClient, DescribeClustersCommand } from "@aws-sdk/client-ecs";
 import {
   SecretsManagerClient,
   DescribeSecretCommand,
@@ -413,10 +414,11 @@ async function tryImportOrphans(
     }
   }
 
-  // Look up ELB Target Group + ALB ARNs and ECR repo name for ECS imports
+  // Look up ELB Target Group + ALB ARNs, ECR repo name, and ECS cluster for ECS imports
   let tgArn = "";
   let albArn = "";
   let ecrRepoName = "";
+  let ecsClusterArn = "";
   if (module === "ecs") {
     const elbCreds = {
       accessKeyId: env.AWS_ACCESS_KEY_ID!,
@@ -440,6 +442,15 @@ async function tryImportOrphans(
       const ecrResult = await ecr.send(new DescribeRepositoriesCommand({ repositoryNames: [`${name}-app`] }));
       ecrRepoName = ecrResult.repositories?.[0]?.repositoryName ?? "";
     } catch { /* ECR repo doesn't exist yet — fine */ }
+
+    try {
+      const ecs = new ECSClient({ region, credentials: elbCreds });
+      const clusterResult = await ecs.send(new DescribeClustersCommand({ clusters: [`${name}-cluster`] }));
+      const cluster = clusterResult.clusters?.[0];
+      if (cluster?.status === "ACTIVE") {
+        ecsClusterArn = cluster.clusterArn ?? "";
+      }
+    } catch { /* cluster doesn't exist yet — fine */ }
   }
 
   // Map of module → [ [resource_address, resource_id], ... ]
@@ -455,9 +466,10 @@ async function tryImportOrphans(
       ["aws_iam_role.task",                 `${name}-ecs-task-role`],
       ["aws_iam_role.task_execution",       `${name}-ecs-execution-role`],
       ["aws_s3_bucket.alb_logs",            `${name}-alb-logs-${accountId}`],
-      ...(ecrRepoName ? [["aws_ecr_repository.app", ecrRepoName] as [string, string]] : []),
-      ...(tgArn       ? [["aws_lb_target_group.app", tgArn]      as [string, string]] : []),
-      ...(albArn      ? [["aws_lb.app",              albArn]      as [string, string]] : []),
+      ...(ecsClusterArn ? [["aws_ecs_cluster.this", ecsClusterArn]  as [string, string]] : []),
+      ...(ecrRepoName   ? [["aws_ecr_repository.app", ecrRepoName]  as [string, string]] : []),
+      ...(tgArn         ? [["aws_lb_target_group.app", tgArn]       as [string, string]] : []),
+      ...(albArn        ? [["aws_lb.app",              albArn]       as [string, string]] : []),
     ],
     rds: [
       ["aws_cloudwatch_log_group.rds",    `/infraready/${name}/rds`],
