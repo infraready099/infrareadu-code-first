@@ -387,6 +387,42 @@ async function tryImportOrphans(
             }
           }
         } catch { /* route table lookup failed — proceed */ }
+
+        // Import private route tables + associations — same pattern as public
+        try {
+          const privateRtResult = await ec2.send(new DescribeRouteTablesCommand({
+            Filters: [
+              { Name: "vpc-id", Values: [vpcId] },
+              { Name: "tag:ManagedBy", Values: ["infraready"] },
+              { Name: "tag:Module", Values: ["vpc"] },
+            ],
+          }));
+          const privateRts = (privateRtResult.RouteTables ?? []).filter(rt =>
+            rt.Tags?.some(t => t.Key === "Name" && t.Value?.includes("rt-private"))
+          );
+          for (const rt of privateRts) {
+            if (!rt.RouteTableId) continue;
+            const rtName = rt.Tags?.find(t => t.Key === "Name")?.Value ?? "";
+            const rtIdx = rtName.endsWith(`${region}a`) ? 0 : rtName.endsWith(`${region}b`) ? 1 : -1;
+            if (rtIdx < 0) continue;
+            try {
+              await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, `aws_route_table.private[${rtIdx}]`, rt.RouteTableId], { cwd: workDir, env });
+              await onLog("info", `[tofu] Imported private route table ${rt.RouteTableId} as private[${rtIdx}]`);
+            } catch { /* already in state */ }
+
+            for (const assoc of rt.Associations ?? []) {
+              if (!assoc.SubnetId || !assoc.RouteTableAssociationId || assoc.Main) continue;
+              const subnetRes = await ec2.send(new DescribeSubnetsCommand({ SubnetIds: [assoc.SubnetId] }));
+              const subnetName = subnetRes.Subnets?.[0]?.Tags?.find(t => t.Key === "Name")?.Value ?? "";
+              const assocIdx = subnetName.endsWith(`${region}a`) ? 0 : subnetName.endsWith(`${region}b`) ? 1 : -1;
+              if (assocIdx < 0) continue;
+              try {
+                await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, `aws_route_table_association.private[${assocIdx}]`, assoc.RouteTableAssociationId], { cwd: workDir, env });
+                await onLog("info", `[tofu] Imported private RT association ${assoc.RouteTableAssociationId} as private[${assocIdx}]`);
+              } catch { /* already in state */ }
+            }
+          }
+        } catch { /* private RT lookup failed — proceed */ }
       }
     } catch {
       // EC2 lookup failed (permissions, network) — proceed without import
