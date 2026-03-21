@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
     .from("deployments")
     .select("modules, config")
     .eq("project_id", projectId)
-    .eq("action", "deploy")
+    .or("action.eq.deploy,action.is.null")
     .in("status", ["success", "failed", "running", "queued"])
     .not("modules", "eq", "[]")
     .order("created_at", { ascending: false })

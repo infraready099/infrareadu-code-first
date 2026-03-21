@@ -90,12 +90,14 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Derive modules + config from the last deploy (same logic as destroy route)
+  // Derive modules + config from the last deploy (same logic as destroy route).
+  // or(action.eq.deploy,action.is.null) handles deployments created before the
+  // action column was added — those rows have action=NULL but are deploy jobs.
   const { data: lastDeployment } = await adminClient
     .from("deployments")
     .select("modules, config")
     .eq("project_id", projectId)
-    .eq("action", "deploy")
+    .or("action.eq.deploy,action.is.null")
     .in("status", ["success", "failed", "running", "queued"])
     .not("modules", "eq", "[]")
     .order("created_at", { ascending: false })
