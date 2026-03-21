@@ -134,7 +134,7 @@ export async function POST(req: NextRequest) {
       project_id: projectId,
       user_id:    userId,
       modules,
-      config,
+      config:     resolvedConfig,
       status:     "queued",
       logs:       [],
       action:     "deploy",
@@ -156,7 +156,7 @@ export async function POST(req: NextRequest) {
       project_id: projectId,
       user_id:    userId,
       modules,
-      config,
+      config:     resolvedConfig,
       status:     "queued",
       logs:       [],
       action:     "destroy",
@@ -182,7 +182,7 @@ export async function POST(req: NextRequest) {
   try {
     await sqs.send(new SendMessageCommand({
       QueueUrl:               process.env.DEPLOY_QUEUE_URL,
-      MessageBody:            JSON.stringify({ ...commonJobBase, deploymentId: deployDeployment.id }),
+      MessageBody:            JSON.stringify({ ...commonJobBase, action: "deploy", deploymentId: deployDeployment.id }),
       MessageGroupId:         projectId,
       MessageDeduplicationId: deployDeployment.id,
     }));

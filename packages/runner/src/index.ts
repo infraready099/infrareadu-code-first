@@ -183,6 +183,15 @@ async function processRecordSafe(record: SQSRecord, remainingMs: number): Promis
 
   // Set a safety timer 60s before Lambda would timeout
   const safetyMs = Math.max(remainingMs - 60_000, 0);
+
+  // If Lambda is already nearly expired, skip the guard entirely — arming
+  // a timeout with safetyMs=0 would fire before processRecord even starts.
+  if (safetyMs < 10_000) {
+    console.warn(`[timeout-guard] Only ${remainingMs}ms remaining — skipping timeout guard, running directly`);
+    await processRecord(record);
+    return;
+  }
+
   let timedOut = false;
 
   const timeoutHandle = setTimeout(async () => {
