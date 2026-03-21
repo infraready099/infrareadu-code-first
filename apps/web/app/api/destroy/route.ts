@@ -85,15 +85,16 @@ export async function POST(req: NextRequest) {
   }
 
   // Fetch modules + config from the last deploy-action deployment that has a non-empty modules list.
-  // We intentionally include failed deployments — a partial failure still creates AWS resources
-  // that need to be torn down. Filtering to success-only means a failed deploy can never be
-  // cleaned up (modules would come back empty and the destroy job would run with nothing to do).
+  // Include all non-destroy deploy statuses — even a crashed/in-progress deploy may have
+  // created AWS resources that need tearing down. Using only success|failed would leave
+  // resources orphaned when the runner died mid-deploy (status stuck at running/queued).
   const { data: lastDeployment } = await adminClient
     .from("deployments")
     .select("modules, config")
     .eq("project_id", projectId)
     .eq("action", "deploy")
-    .in("status", ["success", "failed"])
+    .in("status", ["success", "failed", "running", "queued"])
+    .not("modules", "eq", "[]")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();

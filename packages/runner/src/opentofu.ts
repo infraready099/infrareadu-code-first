@@ -61,9 +61,12 @@ function buildWorkDir(
   credentials: OpenTofuOptions["credentials"],
   projectId: string,
   region: string,
-  awsAccountId?: string
-): { workDir: string; tfvarsPath: string; backendConfigPath: string; stateBucket: string; env: Record<string, string | undefined> } {
-  const workDir = join(tmpdir(), `infraready-${module}-${Date.now()}`);
+  awsAccountId?: string,
+  deploymentId?: string,
+): { workDir: string; tfvarsPath: string; backendConfigPath: string; stateBucket: string; env: Record<string, string | undefined>; providerCacheDir: string } {
+  // Use deploymentId (UUID) for uniqueness — Date.now() is not safe under concurrent Lambda invocations
+  const uniqueKey = deploymentId ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const workDir = join(tmpdir(), `infraready-${module}-${uniqueKey}`);
   mkdirSync(workDir, { recursive: true });
 
   const tfvarsPath = join(workDir, "terraform.tfvars.json");
@@ -103,10 +106,10 @@ function buildWorkDir(
 }
 
 export async function destroyOpenTofu(opts: OpenTofuOptions): Promise<void> {
-  const { module, config, credentials, projectId, region, awsAccountId, onLog } = opts;
+  const { module, config, credentials, projectId, region, awsAccountId, deploymentId, onLog } = opts;
 
   const { workDir, tfvarsPath, backendConfigPath, stateBucket, env, providerCacheDir } = buildWorkDir(
-    module, config, credentials, projectId, region, awsAccountId
+    module, config, credentials, projectId, region, awsAccountId, deploymentId
   );
 
   try {
@@ -125,10 +128,10 @@ export async function destroyOpenTofu(opts: OpenTofuOptions): Promise<void> {
 }
 
 export async function execOpenTofu(opts: OpenTofuOptions): Promise<Record<string, unknown>> {
-  const { module, config, credentials, projectId, region, awsAccountId, onLog } = opts;
+  const { module, config, credentials, projectId, region, awsAccountId, deploymentId, onLog } = opts;
 
   const { workDir, tfvarsPath, backendConfigPath, stateBucket, env, providerCacheDir } = buildWorkDir(
-    module, config, credentials, projectId, region, awsAccountId
+    module, config, credentials, projectId, region, awsAccountId, deploymentId
   );
 
   try {

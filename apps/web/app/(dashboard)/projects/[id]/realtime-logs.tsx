@@ -56,7 +56,7 @@ export function RealtimeLogs({ deploymentId, initialLogs, initialStatus }: Realt
   // Poll every 3s while live — reliable fallback if realtime WebSocket is slow
   useEffect(() => {
     const interval = setInterval(() => {
-      const live = statusRef.current === "queued" || statusRef.current === "running";
+      const live = ["queued", "deploying", "running", "destroying"].includes(statusRef.current);
       if (!live) {
         clearInterval(interval);
         return;
