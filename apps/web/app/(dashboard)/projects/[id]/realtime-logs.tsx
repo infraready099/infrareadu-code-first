@@ -25,12 +25,15 @@ export function RealtimeLogs({ deploymentId, initialLogs, initialStatus }: Realt
   // realtime subscription effect to re-run and pile up duplicate channel subscriptions.
   const supabase            = useMemo(() => createClient(), []);
 
-  const isLive    = status === "queued" || status === "running";
+  const isLive    = status === "queued" || status === "deploying" || status === "running" || status === "destroying";
   const isFailed  = status === "failed";
   const isSuccess = status === "success";
 
-  const statusRef = useRef(status);
+  const statusRef   = useRef(status);
   statusRef.current = status;
+  // Track whether the user has scrolled away from the bottom so we don't
+  // hijack their scroll position while they're reading earlier log lines.
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const fetchLatest = async () => {
     const { data } = await supabase
@@ -89,14 +92,20 @@ export function RealtimeLogs({ deploymentId, initialLogs, initialStatus }: Realt
     return () => { supabase.removeChannel(channel); };
   }, [deploymentId, isLive, supabase]);
 
-  // Auto-scroll to bottom as new logs arrive
+  // Auto-scroll to bottom as new logs arrive, but only if the user hasn't scrolled up
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = containerRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    // Only auto-scroll if the user is within 80px of the bottom
+    if (distanceFromBottom < 80) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [logs]);
 
   return (
     <>
-      <div className="deploy-log">
+      <div className="deploy-log" ref={containerRef}>
         {logs.length === 0 ? (
           <div className="flex items-center justify-center text-gray-600 min-h-[160px] text-sm">
             {isLive ? (

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { createServerClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
@@ -73,10 +74,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
             style={{ cursor: "default" }}
           >
             {avatarUrl ? (
-              <img
+              <Image
                 src={avatarUrl}
                 alt="Avatar"
-                className="w-7 h-7 rounded-full shrink-0"
+                width={28}
+                height={28}
+                className="rounded-full shrink-0"
                 style={{ outline: "1px solid rgba(255,255,255,0.1)" }}
               />
             ) : (
