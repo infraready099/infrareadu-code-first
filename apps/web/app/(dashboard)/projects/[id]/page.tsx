@@ -146,11 +146,27 @@ export default async function ProjectDetailPage({
   const deployment = latestDeployment as Deployment | null;
   const logs: LogLine[] = Array.isArray(deployment?.logs) ? (deployment.logs as LogLine[]) : [];
 
-  const canRedeploy   = p.status === "success" || p.status === "failed" || p.status === "destroyed";
-  // Allow destroy retry when stuck in "destroying" (runner may have crashed without finishing)
-  const canDestroy    = p.status === "success" || p.status === "failed" || p.status === "destroying";
-  // Test deploy available when idle and there's a prior deploy to know which modules to use
-  const canTestDeploy = (p.status === "success" || p.status === "failed" || p.status === "destroyed") && !!deployment;
+  // Check if there's any previous deploy with actual modules (for test-deploy + destroy)
+  const { data: deployWithModules } = await supabase
+    .from("deployments")
+    .select("id")
+    .eq("project_id", id)
+    .or("action.eq.deploy,action.is.null")
+    .not("modules", "eq", "[]")
+    .limit(1)
+    .maybeSingle();
+  const hasDeployedModules = !!deployWithModules;
+
+  const isIdle      = ["success", "failed", "destroyed"].includes(p.status);
+  const isActive    = ["deploying", "running", "queued", "destroying"].includes(p.status);
+
+  // Deploy Again: available when idle (not mid-operation)
+  const canRedeploy   = isIdle;
+  // Destroy: only when resources may exist — success, failed (partial), or stuck destroying
+  const canDestroy    = (p.status === "success" || p.status === "failed" || p.status === "destroying") && hasDeployedModules;
+  // Test Deploy: idle + modules known from a previous deploy
+  const canTestDeploy = isIdle && hasDeployedModules;
+  void isActive; // used implicitly via !canRedeploy && !canDestroy && !canTestDeploy
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
@@ -189,15 +205,7 @@ export default async function ProjectDetailPage({
         </div>
 
         <div className="flex items-center gap-2">
-          {canRedeploy && (
-            <Link
-              href={`/projects/new?redeploy=${p.id}`}
-              className="btn-secondary flex items-center gap-2 text-sm"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Deploy Again
-            </Link>
-          )}
+          {/* Never deployed — prompt to configure */}
           {p.status === "pending" && (
             <Link
               href={`/projects/new`}
@@ -205,6 +213,16 @@ export default async function ProjectDetailPage({
             >
               <Rocket className="w-4 h-4" />
               Configure &amp; Deploy
+            </Link>
+          )}
+          {/* Idle with prior deploy — show all three actions */}
+          {canRedeploy && (
+            <Link
+              href={`/projects/new?redeploy=${p.id}`}
+              className="btn-secondary flex items-center gap-2 text-sm"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Deploy Again
             </Link>
           )}
           {canTestDeploy && <TestDeployButton projectId={p.id} />}
