@@ -99,13 +99,13 @@ function buildWorkDir(
     ...(awsAccountId && { AWS_ACCOUNT_ID: awsAccountId }),
   };
 
-  return { workDir, tfvarsPath, backendConfigPath, stateBucket, env };
+  return { workDir, tfvarsPath, backendConfigPath, stateBucket, env, providerCacheDir };
 }
 
 export async function destroyOpenTofu(opts: OpenTofuOptions): Promise<void> {
   const { module, config, credentials, projectId, region, awsAccountId, onLog } = opts;
 
-  const { workDir, tfvarsPath, backendConfigPath, stateBucket, env } = buildWorkDir(
+  const { workDir, tfvarsPath, backendConfigPath, stateBucket, env, providerCacheDir } = buildWorkDir(
     module, config, credentials, projectId, region, awsAccountId
   );
 
@@ -118,15 +118,16 @@ export async function destroyOpenTofu(opts: OpenTofuOptions): Promise<void> {
     await onLog("info", `[tofu] Destroying ${module}...`);
     await runTofu(["destroy", "-auto-approve", `-var-file=${tfvarsPath}`], workDir, env, onLog);
   } finally {
-    // I1: always clean up the temp work directory regardless of success or failure
+    // I1: always clean up temp directories to prevent /tmp exhaustion on Lambda reuse
     rmSync(workDir, { recursive: true, force: true });
+    rmSync(providerCacheDir, { recursive: true, force: true });
   }
 }
 
 export async function execOpenTofu(opts: OpenTofuOptions): Promise<Record<string, unknown>> {
   const { module, config, credentials, projectId, region, awsAccountId, onLog } = opts;
 
-  const { workDir, tfvarsPath, backendConfigPath, stateBucket, env } = buildWorkDir(
+  const { workDir, tfvarsPath, backendConfigPath, stateBucket, env, providerCacheDir } = buildWorkDir(
     module, config, credentials, projectId, region, awsAccountId
   );
 
@@ -161,8 +162,9 @@ export async function execOpenTofu(opts: OpenTofuOptions): Promise<Record<string
       Object.entries(rawOutputs).map(([k, v]) => [k, v.value])
     );
   } finally {
-    // I1: always clean up the temp work directory regardless of success or failure
+    // I1: always clean up temp directories to prevent /tmp exhaustion on Lambda reuse
     rmSync(workDir, { recursive: true, force: true });
+    rmSync(providerCacheDir, { recursive: true, force: true });
   }
 }
 
@@ -214,9 +216,11 @@ async function tryImportOrphans(
           }));
           const subnets = subnetResult.Subnets ?? [];
 
-          // C1: match by Name tag — works regardless of vpc_cidr value
-          const publicNames  = [`${name}-public-us-east-1a`, `${name}-public-us-east-1b`];
-          const privateNames = [`${name}-private-us-east-1a`, `${name}-private-us-east-1b`];
+          // C1: match by Name tag — uses region variable so this works in all AWS regions
+          const az1 = `${region}a`;
+          const az2 = `${region}b`;
+          const publicNames  = [`${name}-public-${az1}`, `${name}-public-${az2}`];
+          const privateNames = [`${name}-private-${az1}`, `${name}-private-${az2}`];
 
           for (let i = 0; i < publicNames.length; i++) {
             const subnet = subnets.find((s) => s.Tags?.some((t) => t.Key === "Name" && t.Value === publicNames[i]));
@@ -370,8 +374,8 @@ async function tryImportOrphans(
               // Look up which public subnet index this is
               const subnetResult2 = await ec2.send(new DescribeSubnetsCommand({ SubnetIds: [assoc.SubnetId] }));
               const subnetName = subnetResult2.Subnets?.[0]?.Tags?.find((t) => t.Key === "Name")?.Value ?? "";
-              // us-east-1a = index 0, us-east-1b = index 1
-              const idx = subnetName.endsWith("us-east-1a") ? 0 : subnetName.endsWith("us-east-1b") ? 1 : -1;
+              // az1 (e.g. us-east-1a) = index 0, az2 (e.g. us-east-1b) = index 1
+              const idx = subnetName.endsWith(`${region}a`) ? 0 : subnetName.endsWith(`${region}b`) ? 1 : -1;
               if (idx < 0) continue;
               try {
                 await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, `aws_route_table_association.public[${idx}]`, assoc.RouteTableAssociationId], { cwd: workDir, env });

@@ -26,10 +26,7 @@ async function resolveUserId(req: NextRequest): Promise<string | undefined> {
 
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (user?.id) return user.id;
-
-  const { data: { session } } = await supabase.auth.getSession();
-  return session?.user?.id;
+  return user?.id;
 }
 
 export async function POST(req: NextRequest) {
