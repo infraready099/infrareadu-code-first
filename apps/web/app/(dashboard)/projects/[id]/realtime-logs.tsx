@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Loader2, CheckCircle2, XCircle } from "lucide-react";
 
@@ -20,7 +20,10 @@ export function RealtimeLogs({ deploymentId, initialLogs, initialStatus }: Realt
   const [logs, setLogs]     = useState<LogLine[]>(initialLogs);
   const [status, setStatus] = useState(initialStatus);
   const bottomRef           = useRef<HTMLDivElement>(null);
-  const supabase            = createClient();
+  // Memoize the client so it's created once per component mount, not every render.
+  // If recreated on every render it would be a new object reference — causing the
+  // realtime subscription effect to re-run and pile up duplicate channel subscriptions.
+  const supabase            = useMemo(() => createClient(), []);
 
   const isLive    = status === "queued" || status === "running";
   const isFailed  = status === "failed";

@@ -205,12 +205,20 @@ export async function POST(req: NextRequest) {
   };
 
   if (process.env.DEPLOY_QUEUE_URL) {
-    await sqs.send(new SendMessageCommand({
-      QueueUrl: process.env.DEPLOY_QUEUE_URL,
-      MessageBody: JSON.stringify(jobPayload),
-      MessageGroupId: projectId,
-      MessageDeduplicationId: deployment.id,
-    }));
+    try {
+      await sqs.send(new SendMessageCommand({
+        QueueUrl: process.env.DEPLOY_QUEUE_URL,
+        MessageBody: JSON.stringify(jobPayload),
+        MessageGroupId: projectId,
+        MessageDeduplicationId: deployment.id,
+      }));
+    } catch (sqsErr) {
+      // SQS failed — the deployment record exists but the runner will never pick it up.
+      // Delete the record so it doesn't appear as permanently stuck in the UI.
+      console.error("[deploy] SQS send failed — rolling back deployment record:", sqsErr);
+      await adminClient.from("deployments").delete().eq("id", deployment.id);
+      return NextResponse.json({ error: "Failed to queue deployment — please try again in a moment." }, { status: 503 });
+    }
   } else {
     console.warn("DEPLOY_QUEUE_URL not set — deployment record created but runner not notified.");
   }
