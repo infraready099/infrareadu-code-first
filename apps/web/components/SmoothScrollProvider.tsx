@@ -1,11 +1,21 @@
 "use client";
 
 import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 
-// Dynamic import inside useEffect — lenis accesses globalThis at module init
-// and crashes during Next.js SSR. This ensures it only runs in the browser.
+// Dashboard routes use h-screen + overflow-y-auto on an inner container.
+// Lenis attaches to window and intercepts wheel events before they reach
+// that inner container — killing scroll entirely on dashboard pages.
+// Skip Lenis on any route that uses the fixed-height sidebar shell.
+const DASHBOARD_PREFIXES = ["/projects", "/templates", "/deployments", "/settings"];
+
 export function SmoothScrollProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const isDashboard = DASHBOARD_PREFIXES.some((p) => pathname?.startsWith(p));
+
   useEffect(() => {
+    if (isDashboard) return;
+
     let cleanup: (() => void) | undefined;
 
     import("lenis").then(({ default: Lenis }) => {
@@ -30,7 +40,7 @@ export function SmoothScrollProvider({ children }: { children: React.ReactNode }
     });
 
     return () => cleanup?.();
-  }, []);
+  }, [isDashboard]);
 
   return <>{children}</>;
 }

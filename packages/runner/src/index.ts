@@ -225,8 +225,11 @@ async function processRecord(record: SQSRecord): Promise<void> {
   let credentials: Credentials | null = null;
   const deployedModules: string[] = [];
 
-  await updateDeployment(deploymentId, { status: "running" });
-  await appendLog(deploymentId, "info", `[InfraReady] Starting deployment ${deploymentId}`);
+  // Set initial status based on action — destroy jobs go straight to "destroying"
+  // so the UI never briefly shows a destroy job as "running" before the branch check
+  const initialStatus = job.action === "destroy" ? "destroying" : "running";
+  await updateDeployment(deploymentId, { status: initialStatus });
+  await appendLog(deploymentId, "info", `[InfraReady] Starting ${job.action ?? "deploy"} ${deploymentId}`);
 
   try {
     // ── Step 1: Assume customer IAM role ────────────────────────────────────
@@ -576,9 +579,7 @@ async function destroyAll(params: {
     return;
   }
 
-  // W2: set status to "destroying" immediately so the UI reflects the in-progress state
-  await updateDeployment(deploymentId, { status: "destroying" });
-
+  // Status was already set to "destroying" by processRecord before this branch runs.
   await appendLog(deploymentId, "info",
     `[InfraReady] Destroying modules in order: ${toDestroy.join(" → ")}`
   );
@@ -1077,16 +1078,22 @@ function formatOutputs(
 // ─── Supabase helpers ─────────────────────────────────────────────────────────
 
 async function updateDeployment(deploymentId: string, updates: Record<string, unknown>) {
-  await supabase
+  const { error } = await supabase
     .from("deployments")
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq("id", deploymentId);
+  if (error) {
+    console.error(`[updateDeployment] Failed for deployment ${deploymentId}:`, error.message, "| updates:", JSON.stringify(updates));
+  }
 }
 
 async function appendLog(deploymentId: string, level: string, message: string) {
   const logEntry = { ts: new Date().toISOString(), level, msg: message };
-  await supabase.rpc("append_deployment_log", {
+  const { error } = await supabase.rpc("append_deployment_log", {
     p_deployment_id: deploymentId,
     p_log_entry:     logEntry,
   });
+  if (error) {
+    console.error(`[appendLog] Failed for deployment ${deploymentId}:`, error.message, "| msg:", message);
+  }
 }

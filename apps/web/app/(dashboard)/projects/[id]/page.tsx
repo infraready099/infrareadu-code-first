@@ -17,6 +17,7 @@ import { Metadata } from "next";
 import { RealtimeLogs } from "./realtime-logs";
 import { ResourceOutputs } from "./resource-outputs";
 import { DestroyButton } from "./destroy-button";
+import { TestDeployButton } from "./test-deploy-button";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -105,10 +106,13 @@ export async function generateMetadata({
 
 export default async function ProjectDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ deployment?: string }>;
 }) {
   const { id } = await params;
+  const { deployment: deploymentIdParam } = await searchParams;
   const supabase = await createServerClient();
 
   // Load project (RLS ensures it belongs to the authenticated user)
@@ -122,21 +126,31 @@ export default async function ProjectDetailPage({
 
   const p = project as Project;
 
-  // Load the latest deployment for this project
-  const { data: latestDeployment } = await supabase
-    .from("deployments")
-    .select("*")
-    .eq("project_id", id)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // If a specific deployment ID is requested (e.g. from test-deploy), show that one.
+  // Otherwise show the most recent deployment.
+  const { data: latestDeployment } = deploymentIdParam
+    ? await supabase
+        .from("deployments")
+        .select("*")
+        .eq("id", deploymentIdParam)
+        .eq("project_id", id)
+        .maybeSingle()
+    : await supabase
+        .from("deployments")
+        .select("*")
+        .eq("project_id", id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
   const deployment = latestDeployment as Deployment | null;
   const logs: LogLine[] = Array.isArray(deployment?.logs) ? (deployment.logs as LogLine[]) : [];
 
-  const canRedeploy = p.status === "success" || p.status === "failed" || p.status === "destroyed";
+  const canRedeploy   = p.status === "success" || p.status === "failed" || p.status === "destroyed";
   // Allow destroy retry when stuck in "destroying" (runner may have crashed without finishing)
-  const canDestroy  = p.status === "success" || p.status === "failed" || p.status === "destroying";
+  const canDestroy    = p.status === "success" || p.status === "failed" || p.status === "destroying";
+  // Test deploy available when idle and there's a prior deploy to know which modules to use
+  const canTestDeploy = (p.status === "success" || p.status === "failed" || p.status === "destroyed") && !!deployment;
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
@@ -193,6 +207,7 @@ export default async function ProjectDetailPage({
               Configure &amp; Deploy
             </Link>
           )}
+          {canTestDeploy && <TestDeployButton projectId={p.id} />}
           {canDestroy && <DestroyButton projectId={p.id} />}
         </div>
       </div>
