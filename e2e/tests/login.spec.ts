@@ -18,14 +18,12 @@ test.describe("Login page", () => {
     await expect(page).toHaveURL(/login/);
   });
 
-  test("GitHub button shows loading state on click", async ({ page }) => {
+  test("GitHub button triggers OAuth redirect on click", async ({ page }) => {
     await page.goto("/login");
     const btn = page.getByRole("button", { name: /continue with github/i });
     await btn.click();
-    // Should briefly show a loading state before redirect
-    await expect(page.getByText(/redirecting/i)).toBeVisible({ timeout: 3000 }).catch(() => {
-      // If it redirects before we can catch it, that's also fine
-    });
+    // After click, the OAuth flow starts — page navigates away from /login
+    await expect(page).not.toHaveURL(/\/login$/, { timeout: 5000 });
   });
 
   test("no console errors", async ({ page }) => {
