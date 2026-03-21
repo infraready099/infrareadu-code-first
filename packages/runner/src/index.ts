@@ -516,11 +516,12 @@ async function preDestroyEcs(params: {
 
   // 1. Disable deletion protection on all ALBs for this project
   // ALB name = "${local.name}-alb" = "${projectName}-${environment}-alb"
+  // Pass Names filter directly — avoids fetching all ALBs in the account and
+  // prevents pagination misses (ELBv2 returns max 20 per page without Names).
   try {
-    const lbs = await elbv2.send(new DescribeLoadBalancersCommand({}));
-    const projectAlbs = (lbs.LoadBalancers ?? []).filter((lb) =>
-      lb.LoadBalancerName?.startsWith(localName)
-    );
+    const albName = `${localName}-alb`;
+    const lbs = await elbv2.send(new DescribeLoadBalancersCommand({ Names: [albName] }));
+    const projectAlbs = lbs.LoadBalancers ?? [];
     for (const lb of projectAlbs) {
       if (!lb.LoadBalancerArn) continue;
       await elbv2.send(new ModifyLoadBalancerAttributesCommand({
