@@ -203,10 +203,13 @@ export async function POST(req: NextRequest) {
       MessageDeduplicationId: destroyDeployment.id,
     }));
   } catch (sqsErr) {
-    // Deploy is already queued — can't un-send it. Leave destroy record as queued.
-    // The deploy will run, but the auto-destroy won't. User will need to destroy manually.
+    // Deploy is already queued — can't un-send it. Mark destroy record as failed so
+    // it doesn't stay stuck at "queued" in the UI. User will need to destroy manually.
     console.error("[test-deploy] SQS send failed for destroy job — deploy will run but auto-destroy won't:", sqsErr);
-    // Don't return an error — deploy is still queued and useful. Warn via logs.
+    await adminClient.from("deployments").update({
+      status: "failed",
+      error:  "Auto-destroy could not be queued — deploy will still run. Destroy manually when ready.",
+    }).eq("id", destroyDeployment.id);
   }
 
   // Update project to deploying
