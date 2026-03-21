@@ -11,13 +11,16 @@ export function getSessionToken(): string {
     (c: { name: string }) => c.name.startsWith("sb-") && c.name.endsWith("-auth-token")
   );
   if (!cookie) throw new Error("No Supabase auth cookie found in session.json");
+  let parsed: { access_token?: string };
   try {
-    const parsed = JSON.parse(decodeURIComponent(cookie.value));
-    return parsed.access_token as string;
+    parsed = JSON.parse(decodeURIComponent(cookie.value));
   } catch {
     // Some versions store as base64
     const decoded = Buffer.from(cookie.value, "base64").toString("utf-8");
-    const parsed = JSON.parse(decoded);
-    return parsed.access_token as string;
+    parsed = JSON.parse(decoded);
   }
+  if (!parsed.access_token) {
+    throw new Error("access_token missing from Supabase auth cookie — session.json may be stale. Re-run generate-session.ts");
+  }
+  return parsed.access_token;
 }

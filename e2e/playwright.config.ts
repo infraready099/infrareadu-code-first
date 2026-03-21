@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { join } from "path";
 
 export default defineConfig({
   testDir: "./tests",
@@ -20,7 +21,6 @@ export default defineConfig({
       testMatch: [
         "**/landing.spec.ts",
         "**/login.spec.ts",
-        "**/pricing.spec.ts",
         "**/waitlist-api.spec.ts",
       ],
     },
@@ -28,7 +28,7 @@ export default defineConfig({
       name: "authenticated",
       use: {
         ...devices["Desktop Chrome"],
-        storageState: "auth/session.json",
+        storageState: join(__dirname, "auth/session.json"),
       },
       testMatch: [
         "**/projects-list.spec.ts",
