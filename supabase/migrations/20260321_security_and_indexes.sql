@@ -38,5 +38,14 @@ CREATE INDEX IF NOT EXISTS idx_deployments_status_created
 -- ── Bug 5: restrict template_stats view to service_role ───────────────────────
 -- Views in PostgreSQL bypass RLS by default; any authenticated user could call
 -- SELECT * FROM template_stats and see cross-customer deployment counts/rates.
-REVOKE ALL ON public.template_stats FROM anon, authenticated;
-GRANT  SELECT ON public.template_stats TO service_role;
+-- Only apply if the view exists (it may not exist in all environments).
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.views
+    WHERE table_schema = 'public' AND table_name = 'template_stats'
+  ) THEN
+    REVOKE ALL ON public.template_stats FROM anon, authenticated;
+    GRANT  SELECT ON public.template_stats TO service_role;
+  END IF;
+END $$;

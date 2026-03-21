@@ -37,7 +37,14 @@ Thumbs.db
 .idea/
 *.swp
 
+# Playwright
+e2e/playwright-report/
+e2e/test-results/
+test-results/
+e2e/auth/session.json
+
 # Secrets — never commit these
 **/secrets/
 **/*.pem
 **/*.key
+.gstack/
