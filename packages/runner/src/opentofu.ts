@@ -105,6 +105,59 @@ function buildWorkDir(
   return { workDir, tfvarsPath, backendConfigPath, stateBucket, env, providerCacheDir };
 }
 
+export interface PlanSummary {
+  toAdd:     number;
+  toChange:  number;
+  toDestroy: number;
+}
+
+/**
+ * Run tofu init + tofu plan for a single module and return the plan summary.
+ * Does NOT apply — safe to run anytime as a preview.
+ */
+export async function planOpenTofu(opts: OpenTofuOptions): Promise<PlanSummary> {
+  const { module, config, credentials, projectId, region, awsAccountId, deploymentId, onLog } = opts;
+
+  const { workDir, tfvarsPath, backendConfigPath, stateBucket, env, providerCacheDir } = buildWorkDir(
+    module, config, credentials, projectId, region, awsAccountId, deploymentId
+  );
+
+  try {
+    await ensureStateBucket(stateBucket, region, credentials);
+
+    await onLog("info", `[tofu] Initializing ${module} for plan...`);
+    await runTofu(["init", `-backend-config=${backendConfigPath}`, "-reconfigure"], workDir, env, onLog);
+
+    await onLog("info", `[tofu] Planning ${module}...`);
+
+    // Capture stdout so we can parse the plan summary line
+    let planOutput = "";
+    const originalOnLog = onLog;
+    const capturingOnLog: typeof onLog = async (level, line) => {
+      planOutput += line + "\n";
+      return originalOnLog(level, line);
+    };
+
+    await runTofu(["plan", "-compact-warnings", `-var-file=${tfvarsPath}`], workDir, env, capturingOnLog);
+
+    // Parse "Plan: X to add, Y to change, Z to destroy."
+    const match = planOutput.match(/Plan:\s*(\d+)\s+to add,\s*(\d+)\s+to change,\s*(\d+)\s+to destroy/i);
+    if (match) {
+      return {
+        toAdd:     parseInt(match[1], 10),
+        toChange:  parseInt(match[2], 10),
+        toDestroy: parseInt(match[3], 10),
+      };
+    }
+
+    // No changes: "No changes. Infrastructure is up-to-date."
+    return { toAdd: 0, toChange: 0, toDestroy: 0 };
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+    rmSync(providerCacheDir, { recursive: true, force: true });
+  }
+}
+
 export async function destroyOpenTofu(opts: OpenTofuOptions): Promise<void> {
   const { module, config, credentials, projectId, region, awsAccountId, deploymentId, onLog } = opts;
 
@@ -393,6 +446,7 @@ async function tryImportOrphans(
         // or exist under a different state file. Anchoring on subnet ID is unambiguous —
         // each subnet has exactly one explicit RT association at a time.
         try {
+          const privateRtTfvarsPath = join(workDir, "terraform.tfvars.json");
           const az1 = `${region}a`;
           const az2 = `${region}b`;
           const privateSubnetNames = [`${name}-private-${az1}`, `${name}-private-${az2}`];
@@ -430,12 +484,12 @@ async function tryImportOrphans(
             try { await execFileAsync(OPENTOFU_BINARY, ["state", "rm", `aws_route_table_association.private[${idx}]`], { cwd: workDir, env }); } catch { /* not in state */ }
 
             try {
-              await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, `aws_route_table.private[${idx}]`, rt.RouteTableId], { cwd: workDir, env });
+              await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${privateRtTfvarsPath}`, `aws_route_table.private[${idx}]`, rt.RouteTableId], { cwd: workDir, env });
               await onLog("info", `[tofu] Imported private RT ${rt.RouteTableId} as private[${idx}]`);
             } catch (e) { await onLog("info", `[tofu] Private RT import skipped (already in state): ${e}`); }
 
             try {
-              await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, `aws_route_table_association.private[${idx}]`, assoc.RouteTableAssociationId], { cwd: workDir, env });
+              await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${privateRtTfvarsPath}`, `aws_route_table_association.private[${idx}]`, assoc.RouteTableAssociationId], { cwd: workDir, env });
               await onLog("info", `[tofu] Imported private RT assoc ${assoc.RouteTableAssociationId} as private[${idx}]`);
             } catch (e) { await onLog("info", `[tofu] Private RT assoc import skipped (already in state): ${e}`); }
           }

@@ -12,18 +12,20 @@ import {
   Rocket,
   Terminal,
   Trash2,
+  ClipboardList,
 } from "lucide-react";
 import { Metadata } from "next";
 import { RealtimeLogs } from "./realtime-logs";
 import { ResourceOutputs } from "./resource-outputs";
 import { DestroyButton } from "./destroy-button";
 import { TestDeployButton } from "./test-deploy-button";
+import { PreviewChangesButton } from "./preview-changes-button";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type DeploymentStatus = "pending" | "deploying" | "queued" | "running" | "success" | "failed" | "destroying" | "destroyed";
+type DeploymentStatus = "pending" | "deploying" | "queued" | "running" | "success" | "failed" | "destroying" | "destroyed" | "planned";
 
 interface LogLine {
   ts:    string;
@@ -42,12 +44,20 @@ interface Project {
   created_at: string;
 }
 
+interface ModulePlan {
+  toAdd:     number;
+  toChange:  number;
+  toDestroy: number;
+}
+
 interface Deployment {
   id: string;
   status: DeploymentStatus;
+  action: string;
   modules: string[];
   logs: LogLine[];
   outputs: Record<string, unknown> | null;
+  plan_summary: Record<string, ModulePlan> | null;
   created_at: string;
   updated_at: string;
 }
@@ -68,6 +78,7 @@ const statusConfig: Record<
   failed:     { label: "Failed",          icon: <AlertCircle className="w-3 h-3" />,               className: "badge-failed" },
   destroying: { label: "Destroying...",   icon: <Loader2 className="w-3 h-3 animate-spin" />,     className: "badge-failed" },
   destroyed:  { label: "Destroyed",       icon: <Trash2 className="w-3 h-3" />,                   className: "badge-pending" },
+  planned:    { label: "Plan ready",      icon: <ClipboardList className="w-3 h-3" />,              className: "badge-pending" },
 };
 
 function StatusBadge({ status }: { status: DeploymentStatus }) {
@@ -166,6 +177,8 @@ export default async function ProjectDetailPage({
   const canDestroy    = (p.status === "success" || p.status === "failed" || p.status === "destroying") && hasDeployedModules;
   // Test Deploy: idle + modules known from a previous deploy
   const canTestDeploy = isIdle && hasDeployedModules;
+  // Preview Changes: idle with prior deploy — run plan before deploying
+  const canPreview    = isIdle && hasDeployedModules;
   void isActive; // used implicitly via !canRedeploy && !canDestroy && !canTestDeploy
 
   return (
@@ -225,6 +238,7 @@ export default async function ProjectDetailPage({
               Deploy Again
             </Link>
           )}
+          {canPreview && <PreviewChangesButton projectId={p.id} />}
           {canTestDeploy && <TestDeployButton projectId={p.id} />}
           {canDestroy && <DestroyButton projectId={p.id} />}
         </div>
@@ -323,6 +337,8 @@ export default async function ProjectDetailPage({
                 deploymentId={deployment.id}
                 initialLogs={logs}
                 initialStatus={deployment.status}
+                initialPlanSummary={deployment.plan_summary}
+                projectId={p.id}
               />
 
               <p className="mt-3 text-xs text-gray-600">

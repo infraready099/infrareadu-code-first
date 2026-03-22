@@ -24,7 +24,7 @@ import {
   ListTasksCommand,
   StopTaskCommand,
 } from "@aws-sdk/client-ecs";
-import { execOpenTofu, destroyOpenTofu } from "./opentofu";
+import { execOpenTofu, destroyOpenTofu, planOpenTofu, PlanSummary } from "./opentofu";
 import { createClient } from "@supabase/supabase-js";
 import { generateConfig, ModuleType, IaCEngine } from "./services/terraform-generator";
 import { scanHcl, formatScanReport, DEFAULT_FRAMEWORKS, DEFAULT_BLOCK_ON } from "./services/security-scan";
@@ -130,7 +130,7 @@ function friendlyError(msg: string): string {
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface DeployJob {
-  action?: "deploy" | "destroy";
+  action?: "deploy" | "destroy" | "plan";
   deploymentId: string;
   projectId: string;
   userId: string;
@@ -234,9 +234,10 @@ async function processRecord(record: SQSRecord): Promise<void> {
   let credentials: Credentials | null = null;
   const deployedModules: string[] = [];
 
-  // Set initial status based on action — destroy jobs go straight to "destroying"
-  // so the UI never briefly shows a destroy job as "running" before the branch check
-  const initialStatus = job.action === "destroy" ? "destroying" : "running";
+  // Set initial status based on action
+  const initialStatus = job.action === "destroy" ? "destroying"
+    : job.action === "plan" ? "running"
+    : "running";
   await updateDeployment(deploymentId, { status: initialStatus });
   await appendLog(deploymentId, "info", `[InfraReady] Starting ${job.action ?? "deploy"} ${deploymentId}`);
 
@@ -262,6 +263,12 @@ async function processRecord(record: SQSRecord): Promise<void> {
     // ── Destroy branch ───────────────────────────────────────────────────────
     if (job.action === "destroy") {
       await destroyAll({ job, credentials, deploymentId });
+      return;
+    }
+
+    // ── Plan branch ──────────────────────────────────────────────────────────
+    if (job.action === "plan") {
+      await planAll({ job, credentials, deploymentId, awsAccountId, region });
       return;
     }
 
@@ -568,6 +575,69 @@ async function preDestroyEcs(params: {
 }
 
 // ─── Destroy all modules ─────────────────────────────────────────────────────
+
+async function planAll(params: {
+  job: DeployJob;
+  credentials: Credentials;
+  deploymentId: string;
+  awsAccountId: string;
+  region: string;
+}): Promise<void> {
+  const { job, credentials, deploymentId, awsAccountId, region } = params;
+
+  const MODULE_ORDER = ["vpc", "rds", "ecs", "storage", "security", "waf", "kms", "backup"];
+  const orderedModules = MODULE_ORDER.filter((m) => job.modules.includes(m));
+  const planSummary: Record<string, PlanSummary> = {};
+
+  try {
+    for (const moduleName of orderedModules) {
+      await appendLog(deploymentId, "info", `\n[Plan] Checking module: ${moduleName}`);
+      await updateDeployment(deploymentId, { current_module: moduleName });
+
+      const moduleConfig = buildModuleConfig(moduleName, job.config, {}, {
+        githubRepoOwner: job.githubRepoOwner,
+        githubRepoName:  job.githubRepoName,
+      });
+
+      const summary = await planOpenTofu({
+        module:       moduleName,
+        config:       moduleConfig,
+        credentials,
+        deploymentId,
+        projectId:    job.projectId,
+        region,
+        awsAccountId,
+        onLog: (level, line) => appendLog(deploymentId, level, line),
+      });
+
+      planSummary[moduleName] = summary;
+      await appendLog(
+        deploymentId,
+        "info",
+        `[Plan] ${moduleName}: ${summary.toAdd} to add, ${summary.toChange} to change, ${summary.toDestroy} to destroy`
+      );
+    }
+
+    await appendLog(deploymentId, "success", "\n[InfraReady] Plan complete — review above and confirm to deploy.");
+
+    await updateDeployment(deploymentId, {
+      status:       "planned",
+      plan_summary: planSummary,
+      completed_at: new Date().toISOString(),
+      current_module: null,
+    });
+
+  } catch (err: unknown) {
+    const error = err as Error;
+    await appendLog(deploymentId, "error", `\n[InfraReady] Plan failed: ${error.message}`);
+    await updateDeployment(deploymentId, {
+      status:       "failed",
+      error:        error.message,
+      completed_at: new Date().toISOString(),
+      current_module: null,
+    });
+  }
+}
 
 async function destroyAll(params: {
   job: DeployJob;
