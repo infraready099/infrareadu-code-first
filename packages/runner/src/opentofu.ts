@@ -388,41 +388,58 @@ async function tryImportOrphans(
           }
         } catch { /* route table lookup failed — proceed */ }
 
-        // Import private route tables + associations — same pattern as public
+        // Import private route tables + associations via subnet-first lookup.
+        // Tag-based lookup misses RTs from prior deployments that may lack InfraReady tags
+        // or exist under a different state file. Anchoring on subnet ID is unambiguous —
+        // each subnet has exactly one explicit RT association at a time.
         try {
-          const privateRtResult = await ec2.send(new DescribeRouteTablesCommand({
+          const az1 = `${region}a`;
+          const az2 = `${region}b`;
+          const privateSubnetNames = [`${name}-private-${az1}`, `${name}-private-${az2}`];
+          const privSubnetRes = await ec2.send(new DescribeSubnetsCommand({
             Filters: [
               { Name: "vpc-id", Values: [vpcId] },
-              { Name: "tag:ManagedBy", Values: ["infraready"] },
-              { Name: "tag:Module", Values: ["vpc"] },
+              { Name: "tag:Name", Values: privateSubnetNames },
             ],
           }));
-          const privateRts = (privateRtResult.RouteTables ?? []).filter(rt =>
-            rt.Tags?.some(t => t.Key === "Name" && t.Value?.includes("rt-private"))
-          );
-          for (const rt of privateRts) {
-            if (!rt.RouteTableId) continue;
-            const rtName = rt.Tags?.find(t => t.Key === "Name")?.Value ?? "";
-            const rtIdx = rtName.endsWith(`${region}a`) ? 0 : rtName.endsWith(`${region}b`) ? 1 : -1;
-            if (rtIdx < 0) continue;
-            try {
-              await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, `aws_route_table.private[${rtIdx}]`, rt.RouteTableId], { cwd: workDir, env });
-              await onLog("info", `[tofu] Imported private route table ${rt.RouteTableId} as private[${rtIdx}]`);
-            } catch { /* already in state */ }
 
-            for (const assoc of rt.Associations ?? []) {
-              if (!assoc.SubnetId || !assoc.RouteTableAssociationId || assoc.Main) continue;
-              const subnetRes = await ec2.send(new DescribeSubnetsCommand({ SubnetIds: [assoc.SubnetId] }));
-              const subnetName = subnetRes.Subnets?.[0]?.Tags?.find(t => t.Key === "Name")?.Value ?? "";
-              const assocIdx = subnetName.endsWith(`${region}a`) ? 0 : subnetName.endsWith(`${region}b`) ? 1 : -1;
-              if (assocIdx < 0) continue;
-              try {
-                await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, `aws_route_table_association.private[${assocIdx}]`, assoc.RouteTableAssociationId], { cwd: workDir, env });
-                await onLog("info", `[tofu] Imported private RT association ${assoc.RouteTableAssociationId} as private[${assocIdx}]`);
-              } catch { /* already in state */ }
+          for (const subnet of privSubnetRes.Subnets ?? []) {
+            if (!subnet.SubnetId) continue;
+            const subnetName = subnet.Tags?.find(t => t.Key === "Name")?.Value ?? "";
+            const idx = subnetName.endsWith(`${region}a`) ? 0 : subnetName.endsWith(`${region}b`) ? 1 : -1;
+            if (idx < 0) continue;
+
+            // Find which route table is explicitly associated with this private subnet
+            const rtForSubnet = await ec2.send(new DescribeRouteTablesCommand({
+              Filters: [{ Name: "association.subnet-id", Values: [subnet.SubnetId] }],
+            }));
+            const rt = rtForSubnet.RouteTables?.[0];
+            if (!rt?.RouteTableId) {
+              await onLog("info", `[tofu] No explicit RT association for private subnet ${subnet.SubnetId} — tofu will create one`);
+              continue;
             }
+            const assoc = rt.Associations?.find(a => a.SubnetId === subnet.SubnetId && !a.Main);
+            if (!assoc?.RouteTableAssociationId) continue;
+
+            await onLog("info", `[tofu] Found private subnet ${subnet.SubnetId} associated with RT ${rt.RouteTableId} — importing`);
+
+            // Clear any stale state entry at this index before importing.
+            // Prior attempts may have imported a DIFFERENT RT (one with no subnet association yet)
+            // which would cause the import below to conflict.
+            try { await execFileAsync(OPENTOFU_BINARY, ["state", "rm", `aws_route_table.private[${idx}]`], { cwd: workDir, env }); } catch { /* not in state */ }
+            try { await execFileAsync(OPENTOFU_BINARY, ["state", "rm", `aws_route_table_association.private[${idx}]`], { cwd: workDir, env }); } catch { /* not in state */ }
+
+            try {
+              await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, `aws_route_table.private[${idx}]`, rt.RouteTableId], { cwd: workDir, env });
+              await onLog("info", `[tofu] Imported private RT ${rt.RouteTableId} as private[${idx}]`);
+            } catch (e) { await onLog("info", `[tofu] Private RT import skipped (already in state): ${e}`); }
+
+            try {
+              await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, `aws_route_table_association.private[${idx}]`, assoc.RouteTableAssociationId], { cwd: workDir, env });
+              await onLog("info", `[tofu] Imported private RT assoc ${assoc.RouteTableAssociationId} as private[${idx}]`);
+            } catch (e) { await onLog("info", `[tofu] Private RT assoc import skipped (already in state): ${e}`); }
           }
-        } catch { /* private RT lookup failed — proceed */ }
+        } catch (e) { await onLog("info", `[tofu] Private RT subnet-first lookup failed: ${e} — proceeding`); }
       }
     } catch {
       // EC2 lookup failed (permissions, network) — proceed without import
