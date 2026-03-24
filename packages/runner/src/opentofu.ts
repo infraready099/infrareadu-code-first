@@ -19,6 +19,7 @@ import {
   DescribeNatGatewaysCommand,
   DeleteNatGatewayCommand,
   DescribeRouteTablesCommand,
+  DescribeSecurityGroupsCommand,
 } from "@aws-sdk/client-ec2";
 import {
   ElasticLoadBalancingV2Client,
@@ -528,11 +529,13 @@ async function tryImportOrphans(
     }
   }
 
-  // Look up ELB Target Group + ALB ARNs, ECR repo name, and ECS cluster for ECS imports
+  // Look up ELB Target Group + ALB ARNs, ECR repo name, ECS cluster, and security groups for ECS imports
   let tgArn = "";
   let albArn = "";
   let ecrRepoName = "";
   let ecsClusterArn = "";
+  let albSgId = "";
+  let ecsTasksSgId = "";
   if (module === "ecs") {
     const elbCreds = {
       accessKeyId: env.AWS_ACCESS_KEY_ID!,
@@ -565,6 +568,20 @@ async function tryImportOrphans(
         ecsClusterArn = cluster.clusterArn ?? "";
       }
     } catch { /* cluster doesn't exist yet — fine */ }
+
+    // Look up security groups by name — they're orphan-prone when apply fails mid-run
+    try {
+      const ec2 = new EC2Client({ region, credentials: elbCreds });
+      const sgResult = await ec2.send(new DescribeSecurityGroupsCommand({
+        Filters: [
+          { Name: "group-name", Values: [`${name}-alb-sg`, `${name}-ecs-tasks-sg`] },
+        ],
+      }));
+      for (const sg of sgResult.SecurityGroups ?? []) {
+        if (sg.GroupName === `${name}-alb-sg`)       albSgId      = sg.GroupId ?? "";
+        if (sg.GroupName === `${name}-ecs-tasks-sg`) ecsTasksSgId = sg.GroupId ?? "";
+      }
+    } catch { /* SGs don't exist yet — fine */ }
   }
 
   // Map of module → [ [resource_address, resource_id], ... ]
@@ -580,10 +597,12 @@ async function tryImportOrphans(
       ["aws_iam_role.task",                 `${name}-ecs-task-role`],
       ["aws_iam_role.task_execution",       `${name}-ecs-execution-role`],
       ["aws_s3_bucket.alb_logs",            `${name}-alb-logs-${accountId}`],
-      ...(ecsClusterArn ? [["aws_ecs_cluster.this", ecsClusterArn]  as [string, string]] : []),
-      ...(ecrRepoName   ? [["aws_ecr_repository.app", ecrRepoName]  as [string, string]] : []),
-      ...(tgArn         ? [["aws_lb_target_group.app", tgArn]       as [string, string]] : []),
-      ...(albArn        ? [["aws_lb.app",              albArn]       as [string, string]] : []),
+      ...(ecsClusterArn ? [["aws_ecs_cluster.this",        ecsClusterArn] as [string, string]] : []),
+      ...(ecrRepoName   ? [["aws_ecr_repository.app",      ecrRepoName]   as [string, string]] : []),
+      ...(tgArn         ? [["aws_lb_target_group.app",     tgArn]         as [string, string]] : []),
+      ...(albArn        ? [["aws_lb.app",                  albArn]        as [string, string]] : []),
+      ...(albSgId       ? [["aws_security_group.alb",      albSgId]       as [string, string]] : []),
+      ...(ecsTasksSgId  ? [["aws_security_group.ecs_tasks", ecsTasksSgId] as [string, string]] : []),
     ],
     rds: [
       ["aws_cloudwatch_log_group.rds",    `/infraready/${name}/rds`],
