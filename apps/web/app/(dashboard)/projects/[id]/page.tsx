@@ -158,15 +158,18 @@ export default async function ProjectDetailPage({
   const logs: LogLine[] = Array.isArray(deployment?.logs) ? (deployment.logs as LogLine[]) : [];
 
   // Check if there's any previous deploy with actual modules (for test-deploy + destroy)
-  const { data: deployWithModules } = await supabase
+  // Fetch recent non-destroy/plan deployments and check modules in JS (TEXT[] filter quirks).
+  const { data: recentDeploys } = await supabase
     .from("deployments")
-    .select("id")
+    .select("id, modules")
     .eq("project_id", id)
-    .or("action.eq.deploy,action.is.null")
-    .not("modules", "eq", "[]")
-    .limit(1)
-    .maybeSingle();
-  const hasDeployedModules = !!deployWithModules;
+    .neq("action", "destroy")
+    .neq("action", "plan")
+    .order("created_at", { ascending: false })
+    .limit(20);
+  const hasDeployedModules = (recentDeploys ?? []).some(
+    (d) => Array.isArray(d.modules) && d.modules.length > 0
+  );
 
   const isIdle      = ["success", "failed", "destroyed"].includes(p.status);
   const isActive    = ["deploying", "running", "queued", "destroying"].includes(p.status);

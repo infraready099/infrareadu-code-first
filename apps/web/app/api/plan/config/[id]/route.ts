@@ -33,16 +33,21 @@ export async function GET(
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
-  // Get the most recent deploy (not plan) with modules
-  const { data: deployment } = await adminClient
+  // Get recent deploy-action deployments and pick the first with non-empty modules.
+  // We do the modules check in JS rather than SQL because TEXT[] comparisons with
+  // Supabase's PostgREST filter syntax are unreliable.
+  const { data: rows } = await adminClient
     .from("deployments")
-    .select("modules, config")
+    .select("modules, config, action")
     .eq("project_id", projectId)
-    .or("action.eq.deploy,action.is.null")
-    .not("modules", "eq", "[]")
+    .neq("action", "destroy")
+    .neq("action", "plan")
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(20);
+
+  const deployment = (rows ?? []).find(
+    (d) => Array.isArray(d.modules) && d.modules.length > 0
+  ) ?? null;
 
   if (!deployment) {
     return NextResponse.json({ error: "No previous deployment found" }, { status: 404 });
