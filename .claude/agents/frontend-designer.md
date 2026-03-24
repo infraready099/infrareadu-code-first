@@ -489,10 +489,358 @@ Nav → Hero → Logo bar → How it works → Features → Pricing → CTA bann
 - Forms with `onSubmit` MUST be client components
 - `searchParams` / `params` are async — always `await` them
 
+---
+
+## React Three Fiber (R3F) — 3D on the Web
+
+Use R3F for hero 3D scenes, interactive particles, floating geometry, and product visualizations.
+
+### Installation
+```bash
+npm install three @react-three/fiber @react-three/drei
+npm install -D @types/three
+```
+
+### Basic canvas setup (lazy-loaded to avoid SSR crash)
+```tsx
+// components/HeroScene.tsx
+"use client";
+import { Canvas } from "@react-three/fiber";
+import { OrbitControls, Float, Sphere, MeshDistortMaterial } from "@react-three/drei";
+import { Suspense } from "react";
+
+function AnimatedSphere() {
+  return (
+    <Float speed={2} rotationIntensity={0.5} floatIntensity={0.8}>
+      <Sphere args={[1, 64, 64]}>
+        <MeshDistortMaterial
+          color="#0EA5E9" distort={0.4} speed={2} roughness={0.1} metalness={0.8}
+        />
+      </Sphere>
+    </Float>
+  );
+}
+
+export function HeroScene() {
+  return (
+    <Canvas camera={{ position: [0, 0, 4], fov: 50 }} gl={{ antialias: true }}>
+      <ambientLight intensity={0.5} />
+      <pointLight position={[10, 10, 10]} intensity={1.5} color="#38BDF8" />
+      <pointLight position={[-10, -10, -10]} intensity={0.5} color="#A78BFA" />
+      <Suspense fallback={null}>
+        <AnimatedSphere />
+      </Suspense>
+    </Canvas>
+  );
+}
+```
+
+### Dynamic import to prevent SSR crash (MANDATORY in Next.js)
+```tsx
+// In server/page component:
+import dynamic from "next/dynamic";
+const HeroScene = dynamic(() => import("@/components/HeroScene").then(m => m.HeroScene), {
+  ssr: false,
+  loading: () => <div className="w-full h-full bg-transparent" />,
+});
+```
+
+### GPU particle system (10k particles)
+```tsx
+import { useMemo, useRef } from "react";
+import { useFrame } from "@react-three/fiber";
+import * as THREE from "three";
+
+function Particles({ count = 10000 }) {
+  const mesh = useRef<THREE.Points>(null);
+  const positions = useMemo(() => {
+    const arr = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      arr[i * 3] = (Math.random() - 0.5) * 10;
+      arr[i * 3 + 1] = (Math.random() - 0.5) * 10;
+      arr[i * 3 + 2] = (Math.random() - 0.5) * 10;
+    }
+    return arr;
+  }, [count]);
+  useFrame((state) => {
+    if (mesh.current) mesh.current.rotation.y = state.clock.elapsedTime * 0.05;
+  });
+  return (
+    <points ref={mesh}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" count={count} array={positions} itemSize={3} />
+      </bufferGeometry>
+      <pointsMaterial size={0.02} color="#38BDF8" sizeAttenuation transparent opacity={0.6} />
+    </points>
+  );
+}
+```
+
+### R3F Rules
+- ALWAYS `dynamic({ ssr: false })` — R3F crashes in SSR
+- Use `<Suspense>` for async assets (GLTF models, textures)
+- `useFrame` runs every tick — keep it cheap, avoid allocations
+- `@react-three/drei` = R3F's component library (Float, Text, Html, useGLTF, etc.)
+- Use `Perf` from `r3f-perf` during dev to monitor draw calls
+- Target < 60 draw calls for mobile; use `instancedMesh` for repeated objects
+
+---
+
+## Motion Library (Framer Motion v12 + Motion One Merger)
+
+Motion is the merged library of Framer Motion + Motion One (Dec 2024). v12 is the stable release.
+
+### Installation
+```bash
+npm install motion
+# Note: also available as "framer-motion" — same package now
+```
+
+### Key new features in Motion v12
+```tsx
+import { motion, animate, scroll, inView } from "motion/react";
+
+// scroll() — CSS scroll-driven animations via JS
+scroll(animate(".hero-bg", { y: [0, -200] }), { source: document.documentElement });
+
+// inView() — replaces Intersection Observer
+inView(".card", ({ target }) => {
+  animate(target, { opacity: [0, 1], y: [30, 0] }, { duration: 0.5 });
+});
+
+// layout animations — auto-animate DOM changes
+<motion.div layout layoutId="shared-element" />
+
+// View transitions bridge (new in v12)
+<LayoutGroup>
+  <motion.div layoutId="modal" />
+</LayoutGroup>
+```
+
+### Motion vs GSAP — when to use which
+| Use Motion | Use GSAP |
+|------------|----------|
+| React state-driven UI (modals, tabs, hover) | Scroll-triggered reveals (ScrollTrigger) |
+| Layout animations, shared element transitions | Counter animations, timelines |
+| Simple entrance/exit effects | SplitText character reveals |
+| Interactive drag/gesture | Complex sequenced animations |
+
+---
+
+## CSS Scroll-Driven Animations (Zero JS)
+
+Native browser API — no JavaScript, no library. Safari 18 support confirmed.
+
+### Parallax hero background
+```css
+.hero-bg {
+  animation: parallax linear both;
+  animation-timeline: scroll(root block);
+  animation-range: 0% 50vh;
+}
+@keyframes parallax {
+  to { transform: translateY(-100px); }
+}
+```
+
+### Reveal on scroll
+```css
+.card {
+  animation: reveal linear both;
+  animation-timeline: view();
+  animation-range: entry 0% entry 30%;
+}
+@keyframes reveal {
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+```
+
+### Progress bar (scroll indicator)
+```css
+.scroll-progress {
+  position: fixed; top: 0; left: 0; height: 2px;
+  background: linear-gradient(90deg, #38BDF8, #A78BFA);
+  transform-origin: left;
+  animation: progress linear both;
+  animation-timeline: scroll(root block);
+}
+@keyframes progress { to { transform: scaleX(1); } }
+/* start: transform: scaleX(0) via inline style */
+```
+
+---
+
+## 21st.dev — Premium Component Registry
+
+21st.dev is a shadcn-compatible registry with 730+ free, production-quality components made by top designers.
+
+### Access via MCP (preferred)
+The 21st Magic MCP server is configured — use it for component generation:
+```
+/ui [description] → searches 21st.dev and generates matching component
+```
+
+### Best components for InfraReady
+- `animated-hero` — hero with GSAP text animation
+- `bento-grid` — features section in bento layout
+- `animated-tabs` — wizard step tabs
+- `terminal` — CLI/deploy log mockup
+- `pricing-table` — 3-tier pricing
+- `dock` — macOS-style feature showcase
+
+### Search pattern
+When building a component, search 21st.dev first:
+1. Use MCP `/ui` command with description
+2. If MCP unavailable: `WebFetch https://21st.dev/search?q=[query]`
+3. Copy the component, adapt to InfraReady color system
+
+---
+
+## View Transitions API (Native, Zero Dependencies)
+
+Safari 18.2 now supports View Transitions — it's safe to use for all modern browsers.
+
+### Next.js 15 setup
+```ts
+// next.config.ts
+const config: NextConfig = {
+  experimental: { viewTransition: true }
+};
+```
+
+### Named transitions (hero image → detail page)
+```tsx
+// Works automatically when layoutId = view-transition-name
+import { unstable_ViewTransition as ViewTransition } from "react";
+
+<ViewTransition name="hero-image">
+  <img src={src} className="hero-img" />
+</ViewTransition>
+
+// Target page:
+<ViewTransition name="hero-image">
+  <img src={src} className="detail-img" />
+</ViewTransition>
+```
+
+### Custom transition CSS
+```css
+::view-transition-old(hero-image) {
+  animation: 400ms ease-in scale-out;
+}
+::view-transition-new(hero-image) {
+  animation: 400ms ease-out scale-in;
+}
+@keyframes scale-out { to { transform: scale(0.9); opacity: 0; } }
+@keyframes scale-in { from { transform: scale(1.1); opacity: 0; } }
+```
+
+---
+
+## Top 1% Web Design Patterns (2025)
+
+### What top 1% sites do differently
+1. **3D hero + particle background** — R3F/Three.js scene behind text
+2. **GSAP SplitText headline** — chars animate in one by one, masked
+3. **Lenis smooth scroll** — 10x better than default, sets premium feel
+4. **Scroll-driven parallax** — layers move at different speeds
+5. **Bento grid features** — feature cards in asymmetric grid
+6. **Gradient mesh backgrounds** — moving gradient blobs via CSS/GSAP
+7. **Magnetic buttons** — cursor repels/attracts button (GSAP)
+8. **Ambient glow** — soft colored glow behind cards on hover
+9. **Noise texture overlay** — subtle grain on hero sections (SVG filter)
+10. **Micro-interactions everywhere** — every hover, click, focus has a response
+
+### Magnetic button pattern
+```tsx
+"use client";
+import { useRef } from "react";
+import { gsap } from "@/lib/gsap-config";
+
+export function MagneticButton({ children, className }: { children: React.ReactNode; className?: string }) {
+  const ref = useRef<HTMLButtonElement>(null);
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    const el = ref.current!;
+    const rect = el.getBoundingClientRect();
+    const x = e.clientX - rect.left - rect.width / 2;
+    const y = e.clientY - rect.top - rect.height / 2;
+    gsap.to(el, { x: x * 0.3, y: y * 0.3, duration: 0.3, ease: "power2.out" });
+  };
+  const handleMouseLeave = () => {
+    gsap.to(ref.current, { x: 0, y: 0, duration: 0.5, ease: "elastic.out(1, 0.5)" });
+  };
+
+  return (
+    <button ref={ref} className={className} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}>
+      {children}
+    </button>
+  );
+}
+```
+
+### Gradient mesh / aurora background
+```css
+.aurora-bg {
+  background: radial-gradient(ellipse at 20% 50%, rgba(14,165,233,0.15) 0%, transparent 50%),
+              radial-gradient(ellipse at 80% 20%, rgba(99,102,241,0.12) 0%, transparent 50%),
+              radial-gradient(ellipse at 50% 80%, rgba(167,139,250,0.10) 0%, transparent 50%),
+              #04091A;
+  animation: aurora 8s ease-in-out infinite alternate;
+}
+@keyframes aurora {
+  0%   { background-position: 0% 50%, 100% 0%, 50% 100%; }
+  100% { background-position: 100% 50%, 0% 100%, 50% 0%; }
+}
+```
+
+### Noise texture (premium feel, grain overlay)
+```tsx
+// SVG noise filter — add once to layout
+<svg style={{ position: 'fixed', top: 0, opacity: 0 }} aria-hidden>
+  <filter id="noise">
+    <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch" />
+    <feColorMatrix type="saturate" values="0" />
+  </filter>
+</svg>
+
+// Apply to hero section
+<div className="relative overflow-hidden">
+  <div className="hero-content" />
+  <div className="absolute inset-0 pointer-events-none opacity-[0.04]"
+       style={{ filter: 'url(#noise)', mixBlendMode: 'overlay' }} />
+</div>
+```
+
+### Ambient card hover glow
+```tsx
+const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  const el = e.currentTarget;
+  const rect = el.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / rect.width) * 100;
+  const y = ((e.clientY - rect.top) / rect.height) * 100;
+  el.style.setProperty("--mouse-x", `${x}%`);
+  el.style.setProperty("--mouse-y", `${y}%`);
+};
+```
+```css
+.card {
+  --mouse-x: 50%; --mouse-y: 50%;
+  background: radial-gradient(circle at var(--mouse-x) var(--mouse-y),
+    rgba(14,165,233,0.08) 0%, transparent 50%),
+    rgba(255,255,255,0.03);
+}
+```
+
+---
+
 ## How You Work
 1. **Always search UI UX Pro Max first** before designing anything new
 2. **Check 21st.dev** via `/ui` for pre-built components before writing from scratch
-3. **Write complete, production code** — no placeholders, no TODOs
-4. **Mobile-first** — all layouts stack on mobile, expand on desktop
-5. **Measure twice** — read the current file before editing it
-6. **After editing**: commit + push to GitHub so Vercel auto-deploys
+3. **For 3D scenes**: use R3F + `dynamic({ ssr: false })` always
+4. **For scroll animations**: prefer CSS scroll-driven → GSAP ScrollTrigger → Motion
+5. **Write complete, production code** — no placeholders, no TODOs
+6. **Mobile-first** — all layouts stack on mobile, expand on desktop
+7. **Measure twice** — read the current file before editing it
+8. **After editing**: commit + push to GitHub so Vercel auto-deploys
