@@ -5,6 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --outfile=dist/index.js --external:@aws-sdk/*",
+    "local": "bun run src/local.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -15,7 +16,8 @@
     "@aws-sdk/client-s3": "^3.729.0",
     "@aws-sdk/client-secrets-manager": "^3.1012.0",
     "@aws-sdk/client-sts": "^3.729.0",
-    "@supabase/supabase-js": "^2.47.10"
+    "@supabase/supabase-js": "^2.47.10",
+    "dotenv": "^17.3.1"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.149",
