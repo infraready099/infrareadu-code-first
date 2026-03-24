@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { createServerClient } from "@/lib/supabase/server";
-import { Plus, GitBranch, Clock, CheckCircle, AlertCircle, Loader2, ChevronRight, Store } from "lucide-react";
+import { Plus, GitBranch, ChevronRight, Store } from "lucide-react";
 
 export const metadata = { title: "Projects — InfraReady" };
 
-type DeploymentStatus = "pending" | "deploying" | "success" | "failed";
+type DeploymentStatus = "pending" | "queued" | "deploying" | "running" | "success" | "failed" | "destroying" | "destroyed";
 
 interface Project {
   id: string;
@@ -17,18 +17,16 @@ interface Project {
 }
 
 const STATUS_STYLES: Record<DeploymentStatus, { label: string; dot: string; text: string; bg: string; border: string }> = {
-  pending:   { label: "Not deployed", dot: "bg-slate-500",   text: "text-slate-400",  bg: "bg-slate-500/10",  border: "border-slate-500/20" },
-  deploying: { label: "Deploying",    dot: "bg-orange-400 animate-pulse", text: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20" },
-  success:   { label: "Live",         dot: "bg-emerald-400", text: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20" },
-  failed:    { label: "Failed",       dot: "bg-red-400",     text: "text-red-400",     bg: "bg-red-500/10",     border: "border-red-500/20" },
+  pending:    { label: "Not deployed",  dot: "bg-slate-500",                          text: "text-slate-400",  bg: "bg-slate-500/10",  border: "border-slate-500/20" },
+  queued:     { label: "Queued",        dot: "bg-orange-400 animate-pulse",           text: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20" },
+  deploying:  { label: "Deploying",     dot: "bg-orange-400 animate-pulse",           text: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20" },
+  running:    { label: "Deploying",     dot: "bg-orange-400 animate-pulse",           text: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20" },
+  success:    { label: "Live",          dot: "bg-emerald-400",                        text: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20" },
+  failed:     { label: "Failed",        dot: "bg-red-400",                            text: "text-red-400",     bg: "bg-red-500/10",     border: "border-red-500/20" },
+  destroying: { label: "Destroying...", dot: "bg-red-400 animate-pulse",              text: "text-red-400",     bg: "bg-red-500/10",     border: "border-red-500/20" },
+  destroyed:  { label: "Destroyed",     dot: "bg-slate-500",                          text: "text-slate-400",  bg: "bg-slate-500/10",  border: "border-slate-500/20" },
 };
 
-const STATUS_ICONS: Record<DeploymentStatus, React.ReactNode> = {
-  pending:   <Clock className="w-3 h-3" />,
-  deploying: <Loader2 className="w-3 h-3 animate-spin" />,
-  success:   <CheckCircle className="w-3 h-3" />,
-  failed:    <AlertCircle className="w-3 h-3" />,
-};
 
 function StatusBadge({ status }: { status: DeploymentStatus }) {
   const s = STATUS_STYLES[status] ?? STATUS_STYLES.pending;

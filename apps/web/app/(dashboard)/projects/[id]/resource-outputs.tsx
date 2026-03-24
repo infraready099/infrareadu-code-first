@@ -49,7 +49,7 @@ function CopyButton({ value }: { value: string }) {
     setTimeout(() => setCopied(false), 2000);
   };
   return (
-    <button onClick={copy} className="ml-2 text-gray-500 hover:text-orange-400 transition-colors shrink-0" title="Copy">
+    <button onClick={copy} aria-label="Copy value" className="ml-2 text-gray-500 hover:text-orange-400 transition-colors shrink-0">
       {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
     </button>
   );
@@ -88,7 +88,11 @@ function ResourceCard({
 
   return (
     <div className={`card border ${borderColor}`}>
-      <div className="flex items-center justify-between mb-3 cursor-pointer" onClick={() => setExpanded(!expanded)}>
+      <button
+        className="flex items-center justify-between mb-3 w-full text-left"
+        onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
+      >
         <div className="flex items-center gap-2.5">
           <span className={iconColor}>{icon}</span>
           <div>
@@ -110,7 +114,7 @@ function ResourceCard({
           )}
           {expanded ? <ChevronUp className="w-4 h-4 text-gray-600" /> : <ChevronDown className="w-4 h-4 text-gray-600" />}
         </div>
-      </div>
+      </button>
       {expanded && <div className="mt-1">{children}</div>}
     </div>
   );
@@ -155,7 +159,6 @@ export function ResourceOutputs({ outputs, projectName, awsRegion, awsAccountId 
     if (outputs.ecr_url) {
       lines.push("# ── Container Registry ───────────────────────────");
       lines.push(`ECR_REPOSITORY=${outputs.ecr_url}`);
-      lines.push(`AWS_REGION=${awsRegion}`);
       lines.push("");
     }
     if (outputs.cluster_name) {
@@ -167,8 +170,9 @@ export function ResourceOutputs({ outputs, projectName, awsRegion, awsAccountId 
     if (outputs.vpc_id) {
       lines.push("# ── Network ──────────────────────────────────────");
       lines.push(`VPC_ID=${outputs.vpc_id}`);
-      lines.push(`AWS_REGION=${awsRegion}`);
     }
+    // Write AWS_REGION once at the end regardless of which modules are present
+    lines.push(`AWS_REGION=${awsRegion}`);
 
     const blob = new Blob([lines.join("\n")], { type: "text/plain" });
     const url = URL.createObjectURL(blob);

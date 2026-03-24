@@ -61,9 +61,12 @@ function buildWorkDir(
   credentials: OpenTofuOptions["credentials"],
   projectId: string,
   region: string,
-  awsAccountId?: string
-): { workDir: string; tfvarsPath: string; backendConfigPath: string; stateBucket: string; env: Record<string, string | undefined> } {
-  const workDir = join(tmpdir(), `infraready-${module}-${Date.now()}`);
+  awsAccountId?: string,
+  deploymentId?: string,
+): { workDir: string; tfvarsPath: string; backendConfigPath: string; stateBucket: string; env: Record<string, string | undefined>; providerCacheDir: string } {
+  // Use deploymentId (UUID) for uniqueness — Date.now() is not safe under concurrent Lambda invocations
+  const uniqueKey = deploymentId ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const workDir = join(tmpdir(), `infraready-${module}-${uniqueKey}`);
   mkdirSync(workDir, { recursive: true });
 
   const tfvarsPath = join(workDir, "terraform.tfvars.json");
@@ -99,14 +102,67 @@ function buildWorkDir(
     ...(awsAccountId && { AWS_ACCOUNT_ID: awsAccountId }),
   };
 
-  return { workDir, tfvarsPath, backendConfigPath, stateBucket, env };
+  return { workDir, tfvarsPath, backendConfigPath, stateBucket, env, providerCacheDir };
+}
+
+export interface PlanSummary {
+  toAdd:     number;
+  toChange:  number;
+  toDestroy: number;
+}
+
+/**
+ * Run tofu init + tofu plan for a single module and return the plan summary.
+ * Does NOT apply — safe to run anytime as a preview.
+ */
+export async function planOpenTofu(opts: OpenTofuOptions): Promise<PlanSummary> {
+  const { module, config, credentials, projectId, region, awsAccountId, deploymentId, onLog } = opts;
+
+  const { workDir, tfvarsPath, backendConfigPath, stateBucket, env, providerCacheDir } = buildWorkDir(
+    module, config, credentials, projectId, region, awsAccountId, deploymentId
+  );
+
+  try {
+    await ensureStateBucket(stateBucket, region, credentials);
+
+    await onLog("info", `[tofu] Initializing ${module} for plan...`);
+    await runTofu(["init", `-backend-config=${backendConfigPath}`, "-reconfigure"], workDir, env, onLog);
+
+    await onLog("info", `[tofu] Planning ${module}...`);
+
+    // Capture stdout so we can parse the plan summary line
+    let planOutput = "";
+    const originalOnLog = onLog;
+    const capturingOnLog: typeof onLog = async (level, line) => {
+      planOutput += line + "\n";
+      return originalOnLog(level, line);
+    };
+
+    await runTofu(["plan", "-compact-warnings", `-var-file=${tfvarsPath}`], workDir, env, capturingOnLog);
+
+    // Parse "Plan: X to add, Y to change, Z to destroy."
+    const match = planOutput.match(/Plan:\s*(\d+)\s+to add,\s*(\d+)\s+to change,\s*(\d+)\s+to destroy/i);
+    if (match) {
+      return {
+        toAdd:     parseInt(match[1], 10),
+        toChange:  parseInt(match[2], 10),
+        toDestroy: parseInt(match[3], 10),
+      };
+    }
+
+    // No changes: "No changes. Infrastructure is up-to-date."
+    return { toAdd: 0, toChange: 0, toDestroy: 0 };
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+    rmSync(providerCacheDir, { recursive: true, force: true });
+  }
 }
 
 export async function destroyOpenTofu(opts: OpenTofuOptions): Promise<void> {
-  const { module, config, credentials, projectId, region, awsAccountId, onLog } = opts;
+  const { module, config, credentials, projectId, region, awsAccountId, deploymentId, onLog } = opts;
 
-  const { workDir, tfvarsPath, backendConfigPath, stateBucket, env } = buildWorkDir(
-    module, config, credentials, projectId, region, awsAccountId
+  const { workDir, tfvarsPath, backendConfigPath, stateBucket, env, providerCacheDir } = buildWorkDir(
+    module, config, credentials, projectId, region, awsAccountId, deploymentId
   );
 
   try {
@@ -118,16 +174,17 @@ export async function destroyOpenTofu(opts: OpenTofuOptions): Promise<void> {
     await onLog("info", `[tofu] Destroying ${module}...`);
     await runTofu(["destroy", "-auto-approve", `-var-file=${tfvarsPath}`], workDir, env, onLog);
   } finally {
-    // I1: always clean up the temp work directory regardless of success or failure
+    // I1: always clean up temp directories to prevent /tmp exhaustion on Lambda reuse
     rmSync(workDir, { recursive: true, force: true });
+    rmSync(providerCacheDir, { recursive: true, force: true });
   }
 }
 
 export async function execOpenTofu(opts: OpenTofuOptions): Promise<Record<string, unknown>> {
-  const { module, config, credentials, projectId, region, awsAccountId, onLog } = opts;
+  const { module, config, credentials, projectId, region, awsAccountId, deploymentId, onLog } = opts;
 
-  const { workDir, tfvarsPath, backendConfigPath, stateBucket, env } = buildWorkDir(
-    module, config, credentials, projectId, region, awsAccountId
+  const { workDir, tfvarsPath, backendConfigPath, stateBucket, env, providerCacheDir } = buildWorkDir(
+    module, config, credentials, projectId, region, awsAccountId, deploymentId
   );
 
   try {
@@ -161,8 +218,9 @@ export async function execOpenTofu(opts: OpenTofuOptions): Promise<Record<string
       Object.entries(rawOutputs).map(([k, v]) => [k, v.value])
     );
   } finally {
-    // I1: always clean up the temp work directory regardless of success or failure
+    // I1: always clean up temp directories to prevent /tmp exhaustion on Lambda reuse
     rmSync(workDir, { recursive: true, force: true });
+    rmSync(providerCacheDir, { recursive: true, force: true });
   }
 }
 
@@ -214,9 +272,11 @@ async function tryImportOrphans(
           }));
           const subnets = subnetResult.Subnets ?? [];
 
-          // C1: match by Name tag — works regardless of vpc_cidr value
-          const publicNames  = [`${name}-public-us-east-1a`, `${name}-public-us-east-1b`];
-          const privateNames = [`${name}-private-us-east-1a`, `${name}-private-us-east-1b`];
+          // C1: match by Name tag — uses region variable so this works in all AWS regions
+          const az1 = `${region}a`;
+          const az2 = `${region}b`;
+          const publicNames  = [`${name}-public-${az1}`, `${name}-public-${az2}`];
+          const privateNames = [`${name}-private-${az1}`, `${name}-private-${az2}`];
 
           for (let i = 0; i < publicNames.length; i++) {
             const subnet = subnets.find((s) => s.Tags?.some((t) => t.Key === "Name" && t.Value === publicNames[i]));
@@ -370,8 +430,8 @@ async function tryImportOrphans(
               // Look up which public subnet index this is
               const subnetResult2 = await ec2.send(new DescribeSubnetsCommand({ SubnetIds: [assoc.SubnetId] }));
               const subnetName = subnetResult2.Subnets?.[0]?.Tags?.find((t) => t.Key === "Name")?.Value ?? "";
-              // us-east-1a = index 0, us-east-1b = index 1
-              const idx = subnetName.endsWith("us-east-1a") ? 0 : subnetName.endsWith("us-east-1b") ? 1 : -1;
+              // az1 (e.g. us-east-1a) = index 0, az2 (e.g. us-east-1b) = index 1
+              const idx = subnetName.endsWith(`${region}a`) ? 0 : subnetName.endsWith(`${region}b`) ? 1 : -1;
               if (idx < 0) continue;
               try {
                 await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, `aws_route_table_association.public[${idx}]`, assoc.RouteTableAssociationId], { cwd: workDir, env });
@@ -380,6 +440,60 @@ async function tryImportOrphans(
             }
           }
         } catch { /* route table lookup failed — proceed */ }
+
+        // Import private route tables + associations via subnet-first lookup.
+        // Tag-based lookup misses RTs from prior deployments that may lack InfraReady tags
+        // or exist under a different state file. Anchoring on subnet ID is unambiguous —
+        // each subnet has exactly one explicit RT association at a time.
+        try {
+          const privateRtTfvarsPath = join(workDir, "terraform.tfvars.json");
+          const az1 = `${region}a`;
+          const az2 = `${region}b`;
+          const privateSubnetNames = [`${name}-private-${az1}`, `${name}-private-${az2}`];
+          const privSubnetRes = await ec2.send(new DescribeSubnetsCommand({
+            Filters: [
+              { Name: "vpc-id", Values: [vpcId] },
+              { Name: "tag:Name", Values: privateSubnetNames },
+            ],
+          }));
+
+          for (const subnet of privSubnetRes.Subnets ?? []) {
+            if (!subnet.SubnetId) continue;
+            const subnetName = subnet.Tags?.find(t => t.Key === "Name")?.Value ?? "";
+            const idx = subnetName.endsWith(`${region}a`) ? 0 : subnetName.endsWith(`${region}b`) ? 1 : -1;
+            if (idx < 0) continue;
+
+            // Find which route table is explicitly associated with this private subnet
+            const rtForSubnet = await ec2.send(new DescribeRouteTablesCommand({
+              Filters: [{ Name: "association.subnet-id", Values: [subnet.SubnetId] }],
+            }));
+            const rt = rtForSubnet.RouteTables?.[0];
+            if (!rt?.RouteTableId) {
+              await onLog("info", `[tofu] No explicit RT association for private subnet ${subnet.SubnetId} — tofu will create one`);
+              continue;
+            }
+            const assoc = rt.Associations?.find(a => a.SubnetId === subnet.SubnetId && !a.Main);
+            if (!assoc?.RouteTableAssociationId) continue;
+
+            await onLog("info", `[tofu] Found private subnet ${subnet.SubnetId} associated with RT ${rt.RouteTableId} — importing`);
+
+            // Clear any stale state entry at this index before importing.
+            // Prior attempts may have imported a DIFFERENT RT (one with no subnet association yet)
+            // which would cause the import below to conflict.
+            try { await execFileAsync(OPENTOFU_BINARY, ["state", "rm", `aws_route_table.private[${idx}]`], { cwd: workDir, env }); } catch { /* not in state */ }
+            try { await execFileAsync(OPENTOFU_BINARY, ["state", "rm", `aws_route_table_association.private[${idx}]`], { cwd: workDir, env }); } catch { /* not in state */ }
+
+            try {
+              await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${privateRtTfvarsPath}`, `aws_route_table.private[${idx}]`, rt.RouteTableId], { cwd: workDir, env });
+              await onLog("info", `[tofu] Imported private RT ${rt.RouteTableId} as private[${idx}]`);
+            } catch (e) { await onLog("info", `[tofu] Private RT import skipped (already in state): ${e}`); }
+
+            try {
+              await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${privateRtTfvarsPath}`, `aws_route_table_association.private[${idx}]`, assoc.RouteTableAssociationId], { cwd: workDir, env });
+              await onLog("info", `[tofu] Imported private RT assoc ${assoc.RouteTableAssociationId} as private[${idx}]`);
+            } catch (e) { await onLog("info", `[tofu] Private RT assoc import skipped (already in state): ${e}`); }
+          }
+        } catch (e) { await onLog("info", `[tofu] Private RT subnet-first lookup failed: ${e} — proceeding`); }
       }
     } catch {
       // EC2 lookup failed (permissions, network) — proceed without import

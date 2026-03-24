@@ -12,17 +12,20 @@ import {
   Rocket,
   Terminal,
   Trash2,
+  ClipboardList,
 } from "lucide-react";
 import { Metadata } from "next";
 import { RealtimeLogs } from "./realtime-logs";
 import { ResourceOutputs } from "./resource-outputs";
 import { DestroyButton } from "./destroy-button";
+import { TestDeployButton } from "./test-deploy-button";
+import { PreviewChangesButton } from "./preview-changes-button";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type DeploymentStatus = "pending" | "deploying" | "queued" | "running" | "success" | "failed" | "destroying" | "destroyed";
+type DeploymentStatus = "pending" | "deploying" | "queued" | "running" | "success" | "failed" | "destroying" | "destroyed" | "planned";
 
 interface LogLine {
   ts:    string;
@@ -41,12 +44,20 @@ interface Project {
   created_at: string;
 }
 
+interface ModulePlan {
+  toAdd:     number;
+  toChange:  number;
+  toDestroy: number;
+}
+
 interface Deployment {
   id: string;
   status: DeploymentStatus;
+  action: string;
   modules: string[];
   logs: LogLine[];
   outputs: Record<string, unknown> | null;
+  plan_summary: Record<string, ModulePlan> | null;
   created_at: string;
   updated_at: string;
 }
@@ -67,6 +78,7 @@ const statusConfig: Record<
   failed:     { label: "Failed",          icon: <AlertCircle className="w-3 h-3" />,               className: "badge-failed" },
   destroying: { label: "Destroying...",   icon: <Loader2 className="w-3 h-3 animate-spin" />,     className: "badge-failed" },
   destroyed:  { label: "Destroyed",       icon: <Trash2 className="w-3 h-3" />,                   className: "badge-pending" },
+  planned:    { label: "Plan ready",      icon: <ClipboardList className="w-3 h-3" />,              className: "badge-pending" },
 };
 
 function StatusBadge({ status }: { status: DeploymentStatus }) {
@@ -105,10 +117,13 @@ export async function generateMetadata({
 
 export default async function ProjectDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ deployment?: string }>;
 }) {
   const { id } = await params;
+  const { deployment: deploymentIdParam } = await searchParams;
   const supabase = await createServerClient();
 
   // Load project (RLS ensures it belongs to the authenticated user)
@@ -122,21 +137,49 @@ export default async function ProjectDetailPage({
 
   const p = project as Project;
 
-  // Load the latest deployment for this project
-  const { data: latestDeployment } = await supabase
-    .from("deployments")
-    .select("*")
-    .eq("project_id", id)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // If a specific deployment ID is requested (e.g. from test-deploy), show that one.
+  // Otherwise show the most recent deployment.
+  const { data: latestDeployment } = deploymentIdParam
+    ? await supabase
+        .from("deployments")
+        .select("*")
+        .eq("id", deploymentIdParam)
+        .eq("project_id", id)
+        .maybeSingle()
+    : await supabase
+        .from("deployments")
+        .select("*")
+        .eq("project_id", id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
   const deployment = latestDeployment as Deployment | null;
   const logs: LogLine[] = Array.isArray(deployment?.logs) ? (deployment.logs as LogLine[]) : [];
 
-  const canRedeploy = p.status === "success" || p.status === "failed" || p.status === "destroyed";
-  // Allow destroy retry when stuck in "destroying" (runner may have crashed without finishing)
-  const canDestroy  = p.status === "success" || p.status === "failed" || p.status === "destroying";
+  // Check if there's any previous deploy with actual modules (for test-deploy + destroy)
+  const { data: deployWithModules } = await supabase
+    .from("deployments")
+    .select("id")
+    .eq("project_id", id)
+    .or("action.eq.deploy,action.is.null")
+    .not("modules", "eq", "[]")
+    .limit(1)
+    .maybeSingle();
+  const hasDeployedModules = !!deployWithModules;
+
+  const isIdle      = ["success", "failed", "destroyed"].includes(p.status);
+  const isActive    = ["deploying", "running", "queued", "destroying"].includes(p.status);
+
+  // Deploy Again: available when idle (not mid-operation)
+  const canRedeploy   = isIdle;
+  // Destroy: only when resources may exist — success, failed (partial), or stuck destroying
+  const canDestroy    = (p.status === "success" || p.status === "failed" || p.status === "destroying") && hasDeployedModules;
+  // Test Deploy: idle + modules known from a previous deploy
+  const canTestDeploy = isIdle && hasDeployedModules;
+  // Preview Changes: idle with prior deploy — run plan before deploying
+  const canPreview    = isIdle && hasDeployedModules;
+  void isActive; // used implicitly via !canRedeploy && !canDestroy && !canTestDeploy
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
@@ -175,15 +218,7 @@ export default async function ProjectDetailPage({
         </div>
 
         <div className="flex items-center gap-2">
-          {canRedeploy && (
-            <Link
-              href={`/projects/new?redeploy=${p.id}`}
-              className="btn-secondary flex items-center gap-2 text-sm"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Deploy Again
-            </Link>
-          )}
+          {/* Never deployed — prompt to configure */}
           {p.status === "pending" && (
             <Link
               href={`/projects/new`}
@@ -193,6 +228,18 @@ export default async function ProjectDetailPage({
               Configure &amp; Deploy
             </Link>
           )}
+          {/* Idle with prior deploy — show all three actions */}
+          {canRedeploy && (
+            <Link
+              href={`/projects/new?redeploy=${p.id}`}
+              className="btn-secondary flex items-center gap-2 text-sm"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Deploy Again
+            </Link>
+          )}
+          {canPreview && <PreviewChangesButton projectId={p.id} />}
+          {canTestDeploy && <TestDeployButton projectId={p.id} />}
           {canDestroy && <DestroyButton projectId={p.id} />}
         </div>
       </div>
@@ -290,6 +337,8 @@ export default async function ProjectDetailPage({
                 deploymentId={deployment.id}
                 initialLogs={logs}
                 initialStatus={deployment.status}
+                initialPlanSummary={deployment.plan_summary}
+                projectId={p.id}
               />
 
               <p className="mt-3 text-xs text-gray-600">

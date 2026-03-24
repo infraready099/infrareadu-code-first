@@ -24,7 +24,7 @@ import {
   ListTasksCommand,
   StopTaskCommand,
 } from "@aws-sdk/client-ecs";
-import { execOpenTofu, destroyOpenTofu } from "./opentofu";
+import { execOpenTofu, destroyOpenTofu, planOpenTofu, PlanSummary } from "./opentofu";
 import { createClient } from "@supabase/supabase-js";
 import { generateConfig, ModuleType, IaCEngine } from "./services/terraform-generator";
 import { scanHcl, formatScanReport, DEFAULT_FRAMEWORKS, DEFAULT_BLOCK_ON } from "./services/security-scan";
@@ -130,7 +130,7 @@ function friendlyError(msg: string): string {
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface DeployJob {
-  action?: "deploy" | "destroy";
+  action?: "deploy" | "destroy" | "plan";
   deploymentId: string;
   projectId: string;
   userId: string;
@@ -183,6 +183,15 @@ async function processRecordSafe(record: SQSRecord, remainingMs: number): Promis
 
   // Set a safety timer 60s before Lambda would timeout
   const safetyMs = Math.max(remainingMs - 60_000, 0);
+
+  // If Lambda is already nearly expired, skip the guard entirely — arming
+  // a timeout with safetyMs=0 would fire before processRecord even starts.
+  if (safetyMs < 10_000) {
+    console.warn(`[timeout-guard] Only ${remainingMs}ms remaining — skipping timeout guard, running directly`);
+    await processRecord(record);
+    return;
+  }
+
   let timedOut = false;
 
   const timeoutHandle = setTimeout(async () => {
@@ -225,8 +234,12 @@ async function processRecord(record: SQSRecord): Promise<void> {
   let credentials: Credentials | null = null;
   const deployedModules: string[] = [];
 
-  await updateDeployment(deploymentId, { status: "running" });
-  await appendLog(deploymentId, "info", `[InfraReady] Starting deployment ${deploymentId}`);
+  // Set initial status based on action
+  const initialStatus = job.action === "destroy" ? "destroying"
+    : job.action === "plan" ? "running"
+    : "running";
+  await updateDeployment(deploymentId, { status: initialStatus });
+  await appendLog(deploymentId, "info", `[InfraReady] Starting ${job.action ?? "deploy"} ${deploymentId}`);
 
   try {
     // ── Step 1: Assume customer IAM role ────────────────────────────────────
@@ -250,6 +263,12 @@ async function processRecord(record: SQSRecord): Promise<void> {
     // ── Destroy branch ───────────────────────────────────────────────────────
     if (job.action === "destroy") {
       await destroyAll({ job, credentials, deploymentId });
+      return;
+    }
+
+    // ── Plan branch ──────────────────────────────────────────────────────────
+    if (job.action === "plan") {
+      await planAll({ job, credentials, deploymentId, awsAccountId, region });
       return;
     }
 
@@ -513,11 +532,12 @@ async function preDestroyEcs(params: {
 
   // 1. Disable deletion protection on all ALBs for this project
   // ALB name = "${local.name}-alb" = "${projectName}-${environment}-alb"
+  // Pass Names filter directly — avoids fetching all ALBs in the account and
+  // prevents pagination misses (ELBv2 returns max 20 per page without Names).
   try {
-    const lbs = await elbv2.send(new DescribeLoadBalancersCommand({}));
-    const projectAlbs = (lbs.LoadBalancers ?? []).filter((lb) =>
-      lb.LoadBalancerName?.startsWith(localName)
-    );
+    const albName = `${localName}-alb`;
+    const lbs = await elbv2.send(new DescribeLoadBalancersCommand({ Names: [albName] }));
+    const projectAlbs = lbs.LoadBalancers ?? [];
     for (const lb of projectAlbs) {
       if (!lb.LoadBalancerArn) continue;
       await elbv2.send(new ModifyLoadBalancerAttributesCommand({
@@ -556,6 +576,69 @@ async function preDestroyEcs(params: {
 
 // ─── Destroy all modules ─────────────────────────────────────────────────────
 
+async function planAll(params: {
+  job: DeployJob;
+  credentials: Credentials;
+  deploymentId: string;
+  awsAccountId: string;
+  region: string;
+}): Promise<void> {
+  const { job, credentials, deploymentId, awsAccountId, region } = params;
+
+  const MODULE_ORDER = ["vpc", "rds", "ecs", "storage", "security", "waf", "kms", "backup"];
+  const orderedModules = MODULE_ORDER.filter((m) => job.modules.includes(m));
+  const planSummary: Record<string, PlanSummary> = {};
+
+  try {
+    for (const moduleName of orderedModules) {
+      await appendLog(deploymentId, "info", `\n[Plan] Checking module: ${moduleName}`);
+      await updateDeployment(deploymentId, { current_module: moduleName });
+
+      const moduleConfig = buildModuleConfig(moduleName, job.config, {}, {
+        githubRepoOwner: job.githubRepoOwner,
+        githubRepoName:  job.githubRepoName,
+      });
+
+      const summary = await planOpenTofu({
+        module:       moduleName,
+        config:       moduleConfig,
+        credentials,
+        deploymentId,
+        projectId:    job.projectId,
+        region,
+        awsAccountId,
+        onLog: (level, line) => appendLog(deploymentId, level, line),
+      });
+
+      planSummary[moduleName] = summary;
+      await appendLog(
+        deploymentId,
+        "info",
+        `[Plan] ${moduleName}: ${summary.toAdd} to add, ${summary.toChange} to change, ${summary.toDestroy} to destroy`
+      );
+    }
+
+    await appendLog(deploymentId, "success", "\n[InfraReady] Plan complete — review above and confirm to deploy.");
+
+    await updateDeployment(deploymentId, {
+      status:       "planned",
+      plan_summary: planSummary,
+      completed_at: new Date().toISOString(),
+      current_module: null,
+    });
+
+  } catch (err: unknown) {
+    const error = err as Error;
+    await appendLog(deploymentId, "error", `\n[InfraReady] Plan failed: ${error.message}`);
+    await updateDeployment(deploymentId, {
+      status:       "failed",
+      error:        error.message,
+      completed_at: new Date().toISOString(),
+      current_module: null,
+    });
+  }
+}
+
 async function destroyAll(params: {
   job: DeployJob;
   credentials: Credentials;
@@ -576,9 +659,7 @@ async function destroyAll(params: {
     return;
   }
 
-  // W2: set status to "destroying" immediately so the UI reflects the in-progress state
-  await updateDeployment(deploymentId, { status: "destroying" });
-
+  // Status was already set to "destroying" by processRecord before this branch runs.
   await appendLog(deploymentId, "info",
     `[InfraReady] Destroying modules in order: ${toDestroy.join(" → ")}`
   );
@@ -1077,16 +1158,22 @@ function formatOutputs(
 // ─── Supabase helpers ─────────────────────────────────────────────────────────
 
 async function updateDeployment(deploymentId: string, updates: Record<string, unknown>) {
-  await supabase
+  const { error } = await supabase
     .from("deployments")
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq("id", deploymentId);
+  if (error) {
+    console.error(`[updateDeployment] Failed for deployment ${deploymentId}:`, error.message, "| updates:", JSON.stringify(updates));
+  }
 }
 
 async function appendLog(deploymentId: string, level: string, message: string) {
   const logEntry = { ts: new Date().toISOString(), level, msg: message };
-  await supabase.rpc("append_deployment_log", {
+  const { error } = await supabase.rpc("append_deployment_log", {
     p_deployment_id: deploymentId,
     p_log_entry:     logEntry,
   });
+  if (error) {
+    console.error(`[appendLog] Failed for deployment ${deploymentId}:`, error.message, "| msg:", message);
+  }
 }

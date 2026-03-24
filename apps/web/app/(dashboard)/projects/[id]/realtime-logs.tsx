@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, ClipboardList } from "lucide-react";
+import { PlanSummaryCard } from "./plan-summary-card";
 
 interface LogLine {
   ts:    string;
@@ -10,34 +12,52 @@ interface LogLine {
   msg:   string;
 }
 
-interface RealtimeLogsProps {
-  deploymentId:   string;
-  initialLogs:    LogLine[];
-  initialStatus:  string;
+interface ModulePlan {
+  toAdd:     number;
+  toChange:  number;
+  toDestroy: number;
 }
 
-export function RealtimeLogs({ deploymentId, initialLogs, initialStatus }: RealtimeLogsProps) {
-  const [logs, setLogs]     = useState<LogLine[]>(initialLogs);
-  const [status, setStatus] = useState(initialStatus);
-  const bottomRef           = useRef<HTMLDivElement>(null);
-  const supabase            = createClient();
+interface RealtimeLogsProps {
+  deploymentId:    string;
+  initialLogs:     LogLine[];
+  initialStatus:   string;
+  initialPlanSummary?: Record<string, ModulePlan> | null;
+  projectId?:      string;
+}
 
-  const isLive    = status === "queued" || status === "running";
+export function RealtimeLogs({ deploymentId, initialLogs, initialStatus, initialPlanSummary, projectId }: RealtimeLogsProps) {
+  const [logs, setLogs]             = useState<LogLine[]>(initialLogs);
+  const [status, setStatus]         = useState(initialStatus);
+  const [planSummary, setPlanSummary] = useState<Record<string, ModulePlan> | null>(initialPlanSummary ?? null);
+  const bottomRef                   = useRef<HTMLDivElement>(null);
+  const router                      = useRouter();
+  // Memoize the client so it's created once per component mount, not every render.
+  // If recreated on every render it would be a new object reference — causing the
+  // realtime subscription effect to re-run and pile up duplicate channel subscriptions.
+  const supabase            = useMemo(() => createClient(), []);
+
+  const isLive    = status === "queued" || status === "deploying" || status === "running" || status === "destroying";
   const isFailed  = status === "failed";
   const isSuccess = status === "success";
+  const isPlanned = status === "planned";
 
-  const statusRef = useRef(status);
+  const statusRef   = useRef(status);
   statusRef.current = status;
+  // Track whether the user has scrolled away from the bottom so we don't
+  // hijack their scroll position while they're reading earlier log lines.
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const fetchLatest = async () => {
     const { data } = await supabase
       .from("deployments")
-      .select("logs, status")
+      .select("logs, status, plan_summary")
       .eq("id", deploymentId)
       .single();
     if (data) {
       setLogs((data.logs as LogLine[]) ?? []);
       setStatus(data.status as string);
+      if (data.plan_summary) setPlanSummary(data.plan_summary as Record<string, ModulePlan>);
     }
   };
 
@@ -50,7 +70,7 @@ export function RealtimeLogs({ deploymentId, initialLogs, initialStatus }: Realt
   // Poll every 3s while live — reliable fallback if realtime WebSocket is slow
   useEffect(() => {
     const interval = setInterval(() => {
-      const live = statusRef.current === "queued" || statusRef.current === "running";
+      const live = ["queued", "deploying", "running", "destroying"].includes(statusRef.current) && statusRef.current !== "planned";
       if (!live) {
         clearInterval(interval);
         return;
@@ -76,9 +96,10 @@ export function RealtimeLogs({ deploymentId, initialLogs, initialStatus }: Realt
           filter: `id=eq.${deploymentId}`,
         },
         (payload) => {
-          const row = payload.new as { logs: LogLine[]; status: string };
+          const row = payload.new as { logs: LogLine[]; status: string; plan_summary?: Record<string, ModulePlan> };
           setLogs(row.logs ?? []);
           setStatus(row.status);
+          if (row.plan_summary) setPlanSummary(row.plan_summary);
         }
       )
       .subscribe();
@@ -86,14 +107,20 @@ export function RealtimeLogs({ deploymentId, initialLogs, initialStatus }: Realt
     return () => { supabase.removeChannel(channel); };
   }, [deploymentId, isLive, supabase]);
 
-  // Auto-scroll to bottom as new logs arrive
+  // Auto-scroll to bottom as new logs arrive, but only if the user hasn't scrolled up
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = containerRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    // Only auto-scroll if the user is within 80px of the bottom
+    if (distanceFromBottom < 80) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [logs]);
 
   return (
     <>
-      <div className="deploy-log">
+      <div className="deploy-log" ref={containerRef}>
         {logs.length === 0 ? (
           <div className="flex items-center justify-center text-gray-600 min-h-[160px] text-sm">
             {isLive ? (
@@ -140,6 +167,22 @@ export function RealtimeLogs({ deploymentId, initialLogs, initialStatus }: Realt
         <div className="mt-3 flex items-center gap-2 text-sm font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-4 py-2.5">
           <CheckCircle2 className="w-4 h-4 shrink-0" />
           Deployment complete — your infrastructure is live
+        </div>
+      )}
+
+      {isPlanned && planSummary && projectId && (
+        <PlanSummaryCard
+          planSummary={planSummary}
+          projectId={projectId}
+          deploymentId={deploymentId}
+          onDeployStarted={(newId) => router.push(`/projects/${projectId}?deployment=${newId}`)}
+        />
+      )}
+
+      {isPlanned && !planSummary && (
+        <div className="mt-3 flex items-center gap-2 text-sm font-medium text-orange-400 bg-orange-500/10 border border-orange-500/20 rounded-lg px-4 py-2.5">
+          <ClipboardList className="w-4 h-4 shrink-0" />
+          Plan complete — review the output above
         </div>
       )}
     </>

@@ -84,15 +84,20 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Fetch modules + config from the last successful deployment
+  // Fetch modules + config from the last deploy-action deployment that has a non-empty modules list.
+  // Include all non-destroy deploy statuses — even a crashed/in-progress deploy may have
+  // created AWS resources that need tearing down. Using only success|failed would leave
+  // resources orphaned when the runner died mid-deploy (status stuck at running/queued).
   const { data: lastDeployment } = await adminClient
     .from("deployments")
     .select("modules, config")
     .eq("project_id", projectId)
-    .eq("status", "success")
+    .or("action.eq.deploy,action.is.null")
+    .in("status", ["success", "failed", "running", "queued"])
+    .not("modules", "eq", "[]")
     .order("created_at", { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
   const lastModules: string[] = lastDeployment?.modules ?? [];
   const lastConfig: Record<string, unknown> = (lastDeployment?.config as Record<string, unknown>) ?? {};
@@ -134,12 +139,19 @@ export async function POST(req: NextRequest) {
   };
 
   if (process.env.DEPLOY_QUEUE_URL) {
-    await sqs.send(new SendMessageCommand({
-      QueueUrl:              process.env.DEPLOY_QUEUE_URL,
-      MessageBody:           JSON.stringify(jobPayload),
-      MessageGroupId:        projectId,
-      MessageDeduplicationId: deployment.id,
-    }));
+    try {
+      await sqs.send(new SendMessageCommand({
+        QueueUrl:              process.env.DEPLOY_QUEUE_URL,
+        MessageBody:           JSON.stringify(jobPayload),
+        MessageGroupId:        projectId,
+        MessageDeduplicationId: deployment.id,
+      }));
+    } catch (sqsErr) {
+      // SQS failed — delete the stuck deployment record so it doesn't appear as permanently queued.
+      console.error("[destroy] SQS send failed — rolling back deployment record:", sqsErr);
+      await adminClient.from("deployments").delete().eq("id", deployment.id);
+      return NextResponse.json({ error: "Failed to queue destroy job — please try again in a moment." }, { status: 503 });
+    }
   } else {
     console.warn("[destroy] DEPLOY_QUEUE_URL not set — deployment record created but runner not notified.");
   }
