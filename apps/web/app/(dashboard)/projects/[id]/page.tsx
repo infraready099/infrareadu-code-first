@@ -8,7 +8,6 @@ import {
   CheckCircle,
   AlertCircle,
   Loader2,
-  RefreshCw,
   Rocket,
   Terminal,
   Trash2,
@@ -20,6 +19,7 @@ import { ResourceOutputs } from "./resource-outputs";
 import { DestroyButton } from "./destroy-button";
 import { TestDeployButton } from "./test-deploy-button";
 import { PreviewChangesButton } from "./preview-changes-button";
+import { DeployAgainButton } from "./deploy-again-button";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -228,16 +228,8 @@ export default async function ProjectDetailPage({
               Configure &amp; Deploy
             </Link>
           )}
-          {/* Idle with prior deploy — show all three actions */}
-          {canRedeploy && (
-            <Link
-              href={`/projects/new?redeploy=${p.id}`}
-              className="btn-secondary flex items-center gap-2 text-sm"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Deploy Again
-            </Link>
-          )}
+          {/* Idle with prior deploy — redeploy directly without wizard */}
+          {canRedeploy && <DeployAgainButton projectId={p.id} />}
           {canPreview && <PreviewChangesButton projectId={p.id} />}
           {canTestDeploy && <TestDeployButton projectId={p.id} />}
           {canDestroy && <DestroyButton projectId={p.id} />}
