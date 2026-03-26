@@ -288,7 +288,9 @@ async function processRecord(record: SQSRecord): Promise<void> {
     // ── Step 2: Security scan ────────────────────────────────────────────────
     await appendLog(deploymentId, "info", "\n[Security] Running compliance scan (SOC2, HIPAA, CIS)...");
 
-    const MODULE_ORDER = ["vpc", "rds", "ecs", "storage", "security", "waf", "kms", "backup"];
+    // ECS runs before RDS so the ECS task SG exists when RDS applies its ingress rule.
+    // After RDS, a second ECS pass injects db_secret_arn into the task definition.
+    const MODULE_ORDER = ["vpc", "ecs", "rds", "storage", "security", "waf", "kms", "backup"];
     const orderedModules = MODULE_ORDER.filter((m) => job.modules.includes(m));
 
     for (const moduleName of orderedModules) {
@@ -349,6 +351,32 @@ async function processRecord(record: SQSRecord): Promise<void> {
       deployedModules.push(moduleName);
       outputs[moduleName] = moduleOutputs;
       await appendLog(deploymentId, "success", `[OpenTofu] Module ${moduleName} deployed successfully`);
+    }
+
+    // ── Step 3b: ECS link-back — wire RDS secret into task definition ─────────
+    // ECS ran first (no db_secret_arn yet). Now that RDS is deployed, re-apply
+    // ECS so the task definition picks up the DB connection string on first deploy.
+    if (orderedModules.includes("ecs") && orderedModules.includes("rds") && outputs.rds) {
+      await appendLog(deploymentId, "info", "\n[OpenTofu] Updating ECS task definition with RDS connection...");
+      await updateDeployment(deploymentId, { current_module: "ecs" });
+
+      const ecsLinkConfig = buildModuleConfig("ecs", job.config, outputs, {
+        githubRepoOwner: job.githubRepoOwner,
+        githubRepoName:  job.githubRepoName,
+      });
+
+      const updatedEcsOutputs = await deployModuleWithRetry({
+        moduleName:   "ecs",
+        moduleConfig: ecsLinkConfig,
+        credentials,
+        deploymentId,
+        projectId:    job.projectId,
+        region,
+        awsAccountId,
+      });
+
+      outputs.ecs = updatedEcsOutputs;
+      await appendLog(deploymentId, "success", "[OpenTofu] ECS updated with RDS connection");
     }
 
     // ── Step 4: Save outputs ─────────────────────────────────────────────────
@@ -585,7 +613,7 @@ async function planAll(params: {
 }): Promise<void> {
   const { job, credentials, deploymentId, awsAccountId, region } = params;
 
-  const MODULE_ORDER = ["vpc", "rds", "ecs", "storage", "security", "waf", "kms", "backup"];
+  const MODULE_ORDER = ["vpc", "ecs", "rds", "storage", "security", "waf", "kms", "backup"];
   const orderedModules = MODULE_ORDER.filter((m) => job.modules.includes(m));
   const planSummary: Record<string, PlanSummary> = {};
 
