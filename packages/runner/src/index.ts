@@ -356,6 +356,9 @@ async function processRecord(record: SQSRecord): Promise<void> {
     // ── Step 3b: ECS link-back — wire RDS secret into task definition ─────────
     // ECS ran first (no db_secret_arn yet). Now that RDS is deployed, re-apply
     // ECS so the task definition picks up the DB connection string on first deploy.
+    // Best-effort: use execOpenTofu directly (no retry, no cleanup on failure).
+    // If this fails, ECS is still healthy from the first pass — user just needs
+    // to redeploy to get the DB connection wired in.
     if (orderedModules.includes("ecs") && orderedModules.includes("rds") && outputs.rds) {
       await appendLog(deploymentId, "info", "\n[OpenTofu] Updating ECS task definition with RDS connection...");
       await updateDeployment(deploymentId, { current_module: "ecs" });
@@ -365,18 +368,30 @@ async function processRecord(record: SQSRecord): Promise<void> {
         githubRepoName:  job.githubRepoName,
       });
 
-      const updatedEcsOutputs = await deployModuleWithRetry({
-        moduleName:   "ecs",
-        moduleConfig: ecsLinkConfig,
-        credentials,
-        deploymentId,
-        projectId:    job.projectId,
-        region,
-        awsAccountId,
-      });
-
-      outputs.ecs = updatedEcsOutputs;
-      await appendLog(deploymentId, "success", "[OpenTofu] ECS updated with RDS connection");
+      try {
+        const updatedEcsOutputs = await execOpenTofu({
+          module:       "ecs",
+          config:       ecsLinkConfig,
+          credentials,
+          deploymentId,
+          projectId:    job.projectId,
+          region,
+          awsAccountId,
+          onLog: (level, line) => {
+            if (process.env.LOCAL_RUNNER) console.log(`[${level.toUpperCase()}] ${line}`);
+            return appendLog(deploymentId, level, line);
+          },
+        });
+        outputs.ecs = updatedEcsOutputs;
+        await appendLog(deploymentId, "success", "[OpenTofu] ECS updated with RDS connection");
+      } catch (linkErr) {
+        // Non-fatal: ECS is running but without db_secret_arn in the task definition.
+        // The user can trigger a second deployment to complete the wiring.
+        await appendLog(deploymentId, "warn",
+          `[OpenTofu] ECS link-back failed (ECS cluster is still healthy): ${(linkErr as Error).message.slice(0, 200)}\n` +
+          `[OpenTofu] Trigger another deployment to wire the RDS connection into the task definition.`
+        );
+      }
     }
 
     // ── Step 4: Save outputs ─────────────────────────────────────────────────
