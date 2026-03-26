@@ -24,7 +24,7 @@ import {
   ListTasksCommand,
   StopTaskCommand,
 } from "@aws-sdk/client-ecs";
-import { execOpenTofu, destroyOpenTofu, planOpenTofu, PlanSummary } from "./opentofu";
+import { execOpenTofu, destroyOpenTofu, planOpenTofu, getModuleOutputs, PlanSummary } from "./opentofu";
 import { createClient } from "@supabase/supabase-js";
 import { generateConfig, ModuleType, IaCEngine } from "./services/terraform-generator";
 import { scanHcl, formatScanReport, DEFAULT_FRAMEWORKS, DEFAULT_BLOCK_ON } from "./services/security-scan";
@@ -631,13 +631,25 @@ async function planAll(params: {
   const MODULE_ORDER = ["vpc", "ecs", "rds", "storage", "security", "waf", "kms", "backup"];
   const orderedModules = MODULE_ORDER.filter((m) => job.modules.includes(m));
   const planSummary: Record<string, PlanSummary> = {};
+  // Accumulate state outputs so cross-module configs are accurate (e.g. ECS SG → RDS ingress).
+  // For fresh environments, getModuleOutputs returns {} — same as before, no regression.
+  const planOutputs: Record<string, Record<string, unknown>> = {};
 
   try {
     for (const moduleName of orderedModules) {
       await appendLog(deploymentId, "info", `\n[Plan] Checking module: ${moduleName}`);
       await updateDeployment(deploymentId, { current_module: moduleName });
 
-      const moduleConfig = buildModuleConfig(moduleName, job.config, {}, {
+      // Fetch current state outputs for this module so downstream modules get accurate values
+      const silentLog = async () => {};
+      const stateOutputs = await getModuleOutputs({
+        module: moduleName, config: buildModuleConfig(moduleName, job.config, planOutputs, {}),
+        credentials, deploymentId, projectId: job.projectId, region, awsAccountId,
+        onLog: silentLog,
+      });
+      planOutputs[moduleName] = stateOutputs;
+
+      const moduleConfig = buildModuleConfig(moduleName, job.config, planOutputs, {
         githubRepoOwner: job.githubRepoOwner,
         githubRepoName:  job.githubRepoName,
       });

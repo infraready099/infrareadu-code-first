@@ -161,6 +161,38 @@ export async function planOpenTofu(opts: OpenTofuOptions): Promise<PlanSummary> 
   }
 }
 
+/**
+ * Read current state outputs for a module without applying any changes.
+ * Used by planAll to pass accurate cross-module outputs (e.g. ECS SG → RDS) when
+ * replanning an already-deployed environment. Returns {} if no state exists yet.
+ */
+export async function getModuleOutputs(opts: OpenTofuOptions): Promise<Record<string, unknown>> {
+  const { module, config, credentials, projectId, region, awsAccountId, deploymentId, onLog } = opts;
+
+  const { workDir, backendConfigPath, stateBucket, env, providerCacheDir } = buildWorkDir(
+    module, config, credentials, projectId, region, awsAccountId, deploymentId
+  );
+
+  try {
+    await ensureStateBucket(stateBucket, region, credentials);
+    await runTofu(["init", `-backend-config=${backendConfigPath}`, "-reconfigure"], workDir, env, onLog);
+
+    let raw = "";
+    const capture: typeof onLog = async (_level, line) => { raw += line; };
+    try {
+      await runTofu(["output", "-json"], workDir, env, capture);
+      const parsed = JSON.parse(raw) as Record<string, { value: unknown }>;
+      return Object.fromEntries(Object.entries(parsed).map(([k, v]) => [k, v.value]));
+    } catch {
+      // No state yet (fresh environment) — return empty outputs
+      return {};
+    }
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+    rmSync(providerCacheDir, { recursive: true, force: true });
+  }
+}
+
 export async function destroyOpenTofu(opts: OpenTofuOptions): Promise<void> {
   const { module, config, credentials, projectId, region, awsAccountId, deploymentId, onLog } = opts;
 
