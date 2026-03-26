@@ -924,7 +924,10 @@ async function deployModuleWithRetry(params: {
 
   const tofuOpts = () => ({
     module: moduleName, config, credentials, deploymentId, projectId, region, awsAccountId,
-    onLog: (level: "info" | "success" | "error" | "warn", line: string) => appendLog(deploymentId, level, line),
+    onLog: (level: "info" | "success" | "error" | "warn", line: string) => {
+      if (process.env.LOCAL_RUNNER) console.log(`[${level.toUpperCase()}] ${line}`);
+      return appendLog(deploymentId, level, line);
+    },
   });
 
   let lastError: Error | null = null;
@@ -1062,6 +1065,8 @@ function buildModuleConfig(
         container_cpu:       config.container_cpu ?? 256,
         container_memory_mb: config.container_memory ?? 512,
         db_secret_arn:       previousOutputs.rds?.db_secret_arn ?? "",
+        container_image:     config.container_image ?? "public.ecr.aws/docker/library/nginx:latest",
+        alb_deletion_protection: false,
       };
 
     case "storage":
@@ -1169,11 +1174,19 @@ async function updateDeployment(deploymentId: string, updates: Record<string, un
 
 async function appendLog(deploymentId: string, level: string, message: string) {
   const logEntry = { ts: new Date().toISOString(), level, msg: message };
-  const { error } = await supabase.rpc("append_deployment_log", {
-    p_deployment_id: deploymentId,
-    p_log_entry:     logEntry,
-  });
-  if (error) {
-    console.error(`[appendLog] Failed for deployment ${deploymentId}:`, error.message, "| msg:", message);
+  try {
+    const rpcPromise = supabase.rpc("append_deployment_log", {
+      p_deployment_id: deploymentId,
+      p_log_entry:     logEntry,
+    });
+    const timeoutPromise = new Promise<{ error: Error }>(resolve =>
+      setTimeout(() => resolve({ error: new Error("appendLog timeout") }), 5000)
+    );
+    const { error } = await Promise.race([rpcPromise, timeoutPromise]) as { error: unknown };
+    if (error) {
+      console.error(`[appendLog] Failed for deployment ${deploymentId}:`, String(error).slice(0, 120), "| msg:", message.slice(0, 80));
+    }
+  } catch (err) {
+    console.error(`[appendLog] Exception for deployment ${deploymentId}:`, String(err).slice(0, 80));
   }
 }

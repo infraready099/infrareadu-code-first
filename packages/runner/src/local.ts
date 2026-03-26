@@ -45,6 +45,10 @@ async function run() {
     process.exit(1);
   }
 
+  // Reset logs so appendLog calls don't 500 on a giant existing array
+  await supabase.from("deployments").update({ logs: [], status: "pending" }).eq("id", deploymentId);
+  console.log("[local] Cleared existing logs for fresh run");
+
   const { data: project, error: projErr } = await supabase
     .from("projects")
     .select("*")
@@ -115,7 +119,7 @@ async function run() {
     }],
   };
 
-  // Fake Lambda context — 10 min timeout
+  // Fake Lambda context — 30 min timeout (local runs are slower; guard fires at remaining-60s)
   const fakeContext: Context = {
     callbackWaitsForEmptyEventLoop: false,
     functionName:    "infraready-runner-local",
@@ -125,7 +129,7 @@ async function run() {
     awsRequestId:    "local",
     logGroupName:    "/local/runner",
     logStreamName:   "local",
-    getRemainingTimeInMillis: () => 600_000,
+    getRemainingTimeInMillis: () => 1_800_000,
     done:     () => {},
     fail:     () => {},
     succeed:  () => {},
