@@ -76,8 +76,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Reject only active deploy operations — destroying is allowed to retry (runner may have crashed)
-  if (["deploying", "running"].includes(project.status)) {
+  // Reject active operations — destroying is allowed to retry (runner may have crashed)
+  if (["deploying", "running", "queued"].includes(project.status)) {
     return NextResponse.json(
       { error: `Project is currently ${project.status}. Wait for it to finish before destroying.` },
       { status: 409 }

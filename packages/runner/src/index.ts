@@ -130,7 +130,7 @@ function friendlyError(msg: string): string {
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface DeployJob {
-  action?: "deploy" | "destroy" | "plan";
+  action?: "deploy" | "destroy" | "test-destroy" | "plan";
   deploymentId: string;
   projectId: string;
   userId: string;
@@ -235,7 +235,7 @@ async function processRecord(record: SQSRecord): Promise<void> {
   const deployedModules: string[] = [];
 
   // Set initial status based on action
-  const initialStatus = job.action === "destroy" ? "destroying"
+  const initialStatus = (job.action === "destroy" || job.action === "test-destroy") ? "destroying"
     : job.action === "plan" ? "running"
     : "running";
   await updateDeployment(deploymentId, { status: initialStatus });
@@ -263,6 +263,12 @@ async function processRecord(record: SQSRecord): Promise<void> {
     // ── Destroy branch ───────────────────────────────────────────────────────
     if (job.action === "destroy") {
       await destroyAll({ job, credentials, deploymentId });
+      return;
+    }
+
+    // ── Test-destroy branch — same as destroy but resets project to "pending" ─
+    if (job.action === "test-destroy") {
+      await destroyAll({ job, credentials, deploymentId, finalProjectStatus: "pending" });
       return;
     }
 
@@ -698,19 +704,21 @@ async function destroyAll(params: {
   job: DeployJob;
   credentials: Credentials;
   deploymentId: string;
+  /** "destroyed" for user-initiated destroys, "pending" for test-deploy auto-destroy */
+  finalProjectStatus?: "destroyed" | "pending";
 }): Promise<void> {
-  const { job, credentials, deploymentId } = params;
+  const { job, credentials, deploymentId, finalProjectStatus = "destroyed" } = params;
   const region = (job.config.aws_region as string) ?? "us-east-1";
   const awsAccountId = job.awsRoleArn.split(":")[4];
 
   // Destroy in reverse order so dependencies are removed cleanly
-  const MODULE_DESTROY_ORDER = ["waf", "macie", "inspector-ssm", "backup", "kms", "security", "storage", "ecs", "rds", "vpc-endpoints", "vpc"];
+  const MODULE_DESTROY_ORDER = ["waf", "macie", "inspector-ssm", "backup", "kms", "security", "storage", "aurora-serverless", "app-runner", "rds", "ecs", "vpc-endpoints", "vpc"];
   const toDestroy = MODULE_DESTROY_ORDER.filter((m) => job.modules.includes(m));
 
   if (toDestroy.length === 0) {
     await appendLog(deploymentId, "warn", "[InfraReady] No modules found to destroy — nothing to do.");
     await updateDeployment(deploymentId, { status: "destroyed", completed_at: new Date().toISOString() });
-    await supabase.from("projects").update({ status: "destroyed" }).eq("id", job.projectId);
+    await supabase.from("projects").update({ status: finalProjectStatus }).eq("id", job.projectId);
     return;
   }
 
@@ -731,7 +739,14 @@ async function destroyAll(params: {
       await preDestroyEcs({ projectName, environment, region, credentials, deploymentId });
     }
 
-    const moduleConfig = buildModuleConfig(moduleName, job.config, {}, {});
+    // Pass destroy-safe overrides: disable deletion protection and force removal
+    const destroyConfig = {
+      ...job.config,
+      deletion_protection:  false,
+      skip_final_snapshot:  true,
+      force_destroy:        true,
+    };
+    const moduleConfig = buildModuleConfig(moduleName, destroyConfig, {}, {});
 
     try {
       await destroyOpenTofu({
@@ -761,12 +776,13 @@ async function destroyAll(params: {
 
   await supabase
     .from("projects")
-    .update({ status: "destroyed", last_deployed_at: new Date().toISOString() })
+    .update({ status: finalProjectStatus, last_deployed_at: new Date().toISOString() })
     .eq("id", job.projectId);
 
-  await appendLog(deploymentId, "success",
-    "\n[InfraReady] All resources destroyed. Your AWS account is clean."
-  );
+  const destroyCompleteMsg = finalProjectStatus === "pending"
+    ? "\n[InfraReady] Test deploy complete. All test resources destroyed. Your AWS account is clean."
+    : "\n[InfraReady] All resources destroyed. Your AWS account is clean.";
+  await appendLog(deploymentId, "success", destroyCompleteMsg);
 }
 
 // ─── Template deployment ──────────────────────────────────────────────────────
@@ -811,9 +827,10 @@ async function deployTemplate(params: {
   // ── Determine modules ──────────────────────────────────────────────────────
   // Always: vpc, ecs, security.
   // Conditional: rds (if template needs a database), storage (if template needs S3).
-  const templateModules: string[] = ["vpc"];
+  // Deploy order: vpc → ecs (creates SG) → rds (uses ECS SG) → storage → security
+  // ECS must come before RDS so the ECS security group exists when RDS ingress rules are created.
+  const templateModules: string[] = ["vpc", "ecs"];
   if (template.requiresDatabase) templateModules.push("rds");
-  templateModules.push("ecs");
   if (template.requiresStorage) templateModules.push("storage");
   templateModules.push("security");
 

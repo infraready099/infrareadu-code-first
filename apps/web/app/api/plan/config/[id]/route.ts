@@ -22,10 +22,10 @@ export async function GET(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  // Verify project ownership
+  // Verify project ownership + fetch name for project_name injection
   const { data: project } = await adminClient
     .from("projects")
-    .select("user_id")
+    .select("user_id, name, aws_region")
     .eq("id", projectId)
     .single();
 
@@ -53,8 +53,14 @@ export async function GET(
     return NextResponse.json({ error: "No previous deployment found" }, { status: 404 });
   }
 
+  const config = {
+    ...(deployment.config as Record<string, unknown>),
+    project_name: project.name.toLowerCase().replace(/[^a-z0-9-]/g, "-"),
+    aws_region:   project.aws_region ?? (deployment.config as Record<string, unknown>)?.aws_region ?? "us-east-1",
+  };
+
   return NextResponse.json({
     modules: deployment.modules,
-    config:  deployment.config,
+    config,
   });
 }
