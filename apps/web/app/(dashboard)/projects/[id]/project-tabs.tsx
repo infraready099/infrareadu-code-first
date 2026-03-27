@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Component, useState } from "react";
 import Link from "next/link";
 import {
   LayoutDashboard, Terminal, Database, Shield, Settings,
@@ -14,71 +14,43 @@ import { DestroyButton } from "./destroy-button";
 import { TestDeployButton } from "./test-deploy-button";
 import { PreviewChangesButton } from "./preview-changes-button";
 import { DeployAgainButton } from "./deploy-again-button";
+import type { DeploymentStatus, LogLine, Deployment, Project, ResourceOutputs } from "./types";
 
 // ---------------------------------------------------------------------------
-// Types
+// Helpers
 // ---------------------------------------------------------------------------
 
-type DeploymentStatus =
-  | "pending" | "deploying" | "queued" | "running"
-  | "success" | "failed" | "destroying" | "destroyed" | "planned";
-
-interface LogLine {
-  ts:    string;
-  level: "info" | "success" | "error" | "warn";
-  msg:   string;
+/** Only allow http/https URLs as hrefs — prevents javascript: injection. */
+function isSafeUrl(val: unknown): val is string {
+  if (typeof val !== "string") return false;
+  try { return ["https:", "http:"].includes(new URL(val).protocol); }
+  catch { return false; }
 }
 
-interface ModulePlan {
-  toAdd:     number;
-  toChange:  number;
-  toDestroy: number;
-}
+// ---------------------------------------------------------------------------
+// Error boundary for ResourceOutputsPanel
+// ---------------------------------------------------------------------------
 
-interface Deployment {
-  id:           string;
-  status:       DeploymentStatus;
-  action:       string;
-  modules:      string[];
-  logs:         LogLine[];
-  outputs:      Record<string, unknown> | null;
-  plan_summary: Record<string, ModulePlan> | null;
-  created_at:   string;
-  updated_at:   string;
+class OutputsBoundary extends Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="card border border-yellow-900/50 text-yellow-500 text-sm py-4 text-center">
+          Could not render resource outputs — unexpected output shape.
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
-
-interface Project {
-  id:               string;
-  name:             string;
-  repo_url:         string;
-  aws_region:       string;
-  aws_account_id:   string | null;
-  status:           DeploymentStatus;
-  last_deployed_at: string | null;
-  created_at:       string;
-}
-
-type ResourceOutputs = {
-  vpc_id?:               string;
-  public_subnet_ids?:    string[];
-  private_subnet_ids?:   string[];
-  db_endpoint?:          string;
-  db_port?:              number;
-  db_name?:              string;
-  db_secret_arn?:        string;
-  app_url?:              string;
-  ecr_url?:              string;
-  cluster_name?:         string;
-  service_name?:         string;
-  log_group?:            string;
-  task_role_arn?:        string;
-  execution_role_arn?:   string;
-  cdn_url?:              string;
-  bucket_name?:          string;
-  bucket_arn?:           string;
-  alerts_topic_arn?:     string;
-  github_workflow_yaml?: string;
-};
 
 export interface ProjectTabsProps {
   project:      Project;
@@ -244,7 +216,7 @@ function OverviewTab({ project, deployment, canRedeploy, canDestroy, canTestDepl
 
         {/* Quick stats */}
         <div className="space-y-3">
-          {outputs.app_url ? (
+          {isSafeUrl(outputs.app_url) ? (
             <a
               href={outputs.app_url}
               target="_blank"
@@ -302,7 +274,7 @@ function OverviewTab({ project, deployment, canRedeploy, canDestroy, canTestDepl
             </div>
           )}
 
-          {outputs.cdn_url ? (
+          {isSafeUrl(outputs.cdn_url) ? (
             <a
               href={outputs.cdn_url}
               target="_blank"
@@ -491,12 +463,14 @@ function InfrastructureTab({ deployment, logs, project }: Pick<ProjectTabsProps,
 
           {/* Resource outputs */}
           {hasOutputs && (
-            <ResourceOutputsPanel
-              outputs={deployment.outputs as Parameters<typeof ResourceOutputsPanel>[0]["outputs"]}
-              projectName={project.name}
-              awsRegion={project.aws_region}
-              awsAccountId={project.aws_account_id}
-            />
+            <OutputsBoundary>
+              <ResourceOutputsPanel
+                outputs={deployment.outputs as Parameters<typeof ResourceOutputsPanel>[0]["outputs"]}
+                projectName={project.name}
+                awsRegion={project.aws_region}
+                awsAccountId={project.aws_account_id}
+              />
+            </OutputsBoundary>
           )}
         </>
       ) : (

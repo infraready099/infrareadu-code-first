@@ -3,49 +3,7 @@ import { Loader2 } from "lucide-react";
 import { Metadata } from "next";
 import { createServerClient } from "@/lib/supabase/server";
 import { ProjectTabs } from "./project-tabs";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-type DeploymentStatus =
-  | "pending" | "deploying" | "queued" | "running"
-  | "success" | "failed" | "destroying" | "destroyed" | "planned";
-
-interface LogLine {
-  ts:    string;
-  level: "info" | "success" | "error" | "warn";
-  msg:   string;
-}
-
-interface ModulePlan {
-  toAdd:     number;
-  toChange:  number;
-  toDestroy: number;
-}
-
-interface Project {
-  id:               string;
-  name:             string;
-  repo_url:         string;
-  aws_region:       string;
-  aws_account_id:   string | null;
-  status:           DeploymentStatus;
-  last_deployed_at: string | null;
-  created_at:       string;
-}
-
-interface Deployment {
-  id:           string;
-  status:       DeploymentStatus;
-  action:       string;
-  modules:      string[];
-  logs:         LogLine[];
-  outputs:      Record<string, unknown> | null;
-  plan_summary: Record<string, ModulePlan> | null;
-  created_at:   string;
-  updated_at:   string;
-}
+import type { DeploymentStatus, LogLine, Deployment, Project } from "./types";
 
 // ---------------------------------------------------------------------------
 // Metadata
