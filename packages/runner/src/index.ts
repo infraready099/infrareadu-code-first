@@ -712,7 +712,10 @@ async function destroyAll(params: {
   const awsAccountId = job.awsRoleArn.split(":")[4];
 
   // Destroy in reverse order so dependencies are removed cleanly
-  const MODULE_DESTROY_ORDER = ["waf", "macie", "inspector-ssm", "backup", "kms", "security", "storage", "aurora-serverless", "app-runner", "rds", "ecs", "vpc-endpoints", "vpc"];
+  // Destroy in reverse dependency order: things that depend on others are destroyed first.
+  // ECS depends on RDS (reads DB) → destroy ECS before RDS.
+  // aurora-serverless and app-runner sit at the same layer as rds/ecs respectively.
+  const MODULE_DESTROY_ORDER = ["waf", "macie", "inspector-ssm", "backup", "kms", "security", "storage", "aurora-serverless", "app-runner", "ecs", "rds", "vpc-endpoints", "vpc"];
   const toDestroy = MODULE_DESTROY_ORDER.filter((m) => job.modules.includes(m));
 
   if (toDestroy.length === 0) {

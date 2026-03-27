@@ -41,6 +41,7 @@ export async function GET(
     .select("modules, config, action")
     .eq("project_id", projectId)
     .neq("action", "destroy")
+    .neq("action", "test-destroy")
     .neq("action", "plan")
     .order("created_at", { ascending: false })
     .limit(20);
@@ -55,7 +56,7 @@ export async function GET(
 
   const config = {
     ...(deployment.config as Record<string, unknown>),
-    project_name: project.name.toLowerCase().replace(/[^a-z0-9-]/g, "-"),
+    project_name: (project.name ?? projectId.slice(0, 8)).toLowerCase().replace(/[^a-z0-9-]/g, "-"),
     aws_region:   project.aws_region ?? (deployment.config as Record<string, unknown>)?.aws_region ?? "us-east-1",
   };
 
