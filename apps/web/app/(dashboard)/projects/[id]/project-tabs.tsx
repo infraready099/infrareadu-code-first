@@ -530,7 +530,6 @@ function DatabaseTab({ deployment, project }: Pick<ProjectTabsProps, "deployment
         <InfoRow label="Host" value={outputs.db_endpoint} />
         <InfoRow label="Port" value={String(outputs.db_port ?? 5432)} />
         {outputs.db_name && <InfoRow label="Database name" value={outputs.db_name} />}
-        <InfoRow label="Engine" value="PostgreSQL 15" />
 
         {/* Connection string */}
         <div className="mt-4 p-3 bg-black/30 rounded-xl">
@@ -683,29 +682,14 @@ function SecurityTab({ deployment, project }: Pick<ProjectTabsProps, "deployment
           description="Private subnets, NAT Gateway, no public DB access"
         />
         <CheckItem
-          label="AWS GuardDuty"
-          checked={hasSecurity}
-          description="AI-powered threat detection for your AWS account"
-        />
-        <CheckItem
-          label="AWS Security Hub"
-          checked={hasSecurity}
-          description="Centralized security findings and compliance checks"
-        />
-        <CheckItem
           label="AWS Config"
           checked={hasSecurity}
           description="Resource configuration history and compliance rules"
         />
         <CheckItem
-          label="CloudTrail Logging"
-          checked={hasSecurity}
-          description="All API calls logged to S3 with integrity validation"
-        />
-        <CheckItem
           label="KMS Encryption"
-          checked={hasRds}
-          description="All data encrypted at rest with customer-managed keys"
+          checked={hasRds || hasStorage}
+          description="Data encrypted at rest with AWS KMS"
         />
         <CheckItem
           label="Secrets Manager"
@@ -715,7 +699,17 @@ function SecurityTab({ deployment, project }: Pick<ProjectTabsProps, "deployment
         <CheckItem
           label="SNS Security Alerts"
           checked={!!outputs.alerts_topic_arn}
-          description="Real-time alerts for GuardDuty findings"
+          description="Real-time billing and infrastructure alerts"
+        />
+        <CheckItem
+          label="AWS GuardDuty"
+          checked={false}
+          description="Enable after first deploy — requires manual AWS enrollment"
+        />
+        <CheckItem
+          label="AWS Security Hub"
+          checked={false}
+          description="Enable after first deploy — requires manual AWS enrollment"
         />
       </div>
 

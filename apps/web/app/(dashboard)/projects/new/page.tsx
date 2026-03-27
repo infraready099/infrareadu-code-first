@@ -671,10 +671,14 @@ function StepTwo({
     try {
       if (existingRole && customExtId.trim()) {
         const supabase = createClient();
-        await supabase
+        const { error: extIdError } = await supabase
           .from("projects")
           .update({ aws_external_id: customExtId.trim() })
           .eq("id", projectId);
+        if (extIdError) {
+          setVerifyError("Failed to save external ID. Please try again.");
+          return;
+        }
       }
       const res  = await fetch("/api/aws/connect", {
         method:  "POST",

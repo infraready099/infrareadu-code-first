@@ -290,7 +290,7 @@ async function processRecord(record: SQSRecord): Promise<void> {
 
     // ECS runs before RDS so the ECS task SG exists when RDS applies its ingress rule.
     // After RDS, a second ECS pass injects db_secret_arn into the task definition.
-    const MODULE_ORDER = ["vpc", "ecs", "rds", "storage", "security", "waf", "kms", "backup"];
+    const MODULE_ORDER = ["vpc", "ecs", "app-runner", "rds", "aurora-serverless", "storage", "security", "waf", "kms", "backup"];
     const orderedModules = MODULE_ORDER.filter((m) => job.modules.includes(m));
 
     for (const moduleName of orderedModules) {
@@ -628,7 +628,7 @@ async function planAll(params: {
 }): Promise<void> {
   const { job, credentials, deploymentId, awsAccountId, region } = params;
 
-  const MODULE_ORDER = ["vpc", "ecs", "rds", "storage", "security", "waf", "kms", "backup"];
+  const MODULE_ORDER = ["vpc", "ecs", "app-runner", "rds", "aurora-serverless", "storage", "security", "waf", "kms", "backup"];
   const orderedModules = MODULE_ORDER.filter((m) => job.modules.includes(m));
   const planSummary: Record<string, PlanSummary> = {};
   // Accumulate state outputs so cross-module configs are accurate (e.g. ECS SG → RDS ingress).

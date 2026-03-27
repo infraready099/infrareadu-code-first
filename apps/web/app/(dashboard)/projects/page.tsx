@@ -162,8 +162,11 @@ export default async function ProjectsPage() {
         </div>
 
         {/* AWS Credits */}
-        <div
-          className="rounded-xl border p-4 transition-all duration-150"
+        <a
+          href="https://aws.amazon.com/activate/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rounded-xl border p-4 transition-all duration-150 block hover:border-sky-500/30"
           style={{
             background: "rgba(14,165,233,0.04)",
             borderColor: "rgba(14,165,233,0.15)",
@@ -181,15 +184,14 @@ export default async function ProjectsPage() {
           <span
             className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-semibold"
             style={{
-              background: "rgba(52,211,153,0.1)",
-              border: "1px solid rgba(52,211,153,0.2)",
-              color: "#34D399",
+              background: "rgba(14,165,233,0.1)",
+              border: "1px solid rgba(14,165,233,0.2)",
+              color: "#38BDF8",
             }}
           >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            Activate Accepted
+            Apply for $5K–$100K →
           </span>
-        </div>
+        </a>
       </div>
 
       {/* Empty state */}
