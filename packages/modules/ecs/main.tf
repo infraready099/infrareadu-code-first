@@ -297,8 +297,10 @@ resource "aws_ecs_cluster" "this" {
 # ─── IAM ROLES FOR ECS ───────────────────────────────────────────────────────
 
 # Task execution role — allows ECS to pull images, push logs, read secrets
+# Use provided role if given, otherwise create one
 resource "aws_iam_role" "task_execution" {
-  name = "${local.name}-ecs-execution-role"
+  count = var.task_execution_role_arn != "" ? 0 : 1
+  name  = "${local.name}-ecs-execution-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -313,15 +315,34 @@ resource "aws_iam_role" "task_execution" {
 }
 
 resource "aws_iam_role_policy_attachment" "task_execution" {
-  role       = aws_iam_role.task_execution.name
+  count      = var.task_execution_role_arn != "" ? 0 : 1
+  role       = aws_iam_role.task_execution[0].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+# Allow task execution role to read any secrets passed via container_secrets
 resource "aws_iam_role_policy" "task_execution_secrets" {
-  count = var.db_secret_arn != "" ? 1 : 0
+  count = length(var.container_secrets) > 0 && var.task_execution_role_arn == "" ? 1 : 0
 
   name = "${local.name}-ecs-secrets-policy"
-  role = aws_iam_role.task_execution.id
+  role = aws_iam_role.task_execution[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["secretsmanager:GetSecretValue", "ssm:GetParameters"]
+      Resource = [for secret in var.container_secrets : secret.valueFrom]
+    }]
+  })
+}
+
+# Also allow reading the db_secret if provided (legacy support)
+resource "aws_iam_role_policy" "task_execution_db_secret" {
+  count = var.db_secret_arn != "" && var.task_execution_role_arn == "" ? 1 : 0
+
+  name = "${local.name}-ecs-db-secret-policy"
+  role = aws_iam_role.task_execution[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -334,8 +355,10 @@ resource "aws_iam_role_policy" "task_execution_secrets" {
 }
 
 # Task role — what the running application can do in AWS
+# Use provided role if given, otherwise create a minimal one
 resource "aws_iam_role" "task" {
-  name = "${local.name}-ecs-task-role"
+  count = var.task_role_arn != "" ? 0 : 1
+  name  = "${local.name}-ecs-task-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -349,10 +372,11 @@ resource "aws_iam_role" "task" {
   tags = local.common_tags
 }
 
-# Minimal task policy — just CloudWatch logs
+# Minimal task policy — just CloudWatch logs (only if using module-created role)
 resource "aws_iam_role_policy" "task" {
-  name = "${local.name}-ecs-task-policy"
-  role = aws_iam_role.task.id
+  count = var.task_role_arn != "" ? 0 : 1
+  name  = "${local.name}-ecs-task-policy"
+  role  = aws_iam_role.task[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -369,6 +393,12 @@ resource "aws_iam_role_policy" "task" {
   })
 }
 
+# Helper locals to reference the correct role ARNs
+locals {
+  task_execution_role_arn = var.task_execution_role_arn != "" ? var.task_execution_role_arn : aws_iam_role.task_execution[0].arn
+  task_role_arn           = var.task_role_arn != "" ? var.task_role_arn : aws_iam_role.task[0].arn
+}
+
 # ─── ECS TASK DEFINITION ─────────────────────────────────────────────────────
 
 resource "aws_ecs_task_definition" "app" {
@@ -377,13 +407,13 @@ resource "aws_ecs_task_definition" "app" {
   requires_compatibilities = ["FARGATE"]
   cpu                      = var.container_cpu
   memory                   = var.container_memory_mb
-  execution_role_arn       = aws_iam_role.task_execution.arn
-  task_role_arn            = aws_iam_role.task.arn
+  execution_role_arn       = local.task_execution_role_arn
+  task_role_arn            = local.task_role_arn
 
   container_definitions = jsonencode([
     {
       name      = "app"
-      image     = "${aws_ecr_repository.app.repository_url}:latest"
+      image     = var.container_image  # Use the provided container image
       essential = true
 
       portMappings = [{
@@ -400,18 +430,25 @@ resource "aws_ecs_task_definition" "app" {
         }
       }
 
-      # Inject DB credentials from Secrets Manager if provided
-      secrets = var.db_secret_arn != "" ? [
-        {
-          name      = "DATABASE_URL"
-          valueFrom = "${var.db_secret_arn}:url::"
-        }
-      ] : []
+      # Merge secrets: container_secrets list + legacy db_secret_arn support
+      secrets = concat(
+        var.container_secrets,
+        var.db_secret_arn != "" ? [
+          {
+            name      = "DATABASE_URL"
+            valueFrom = "${var.db_secret_arn}:url::"
+          }
+        ] : []
+      )
 
-      environment = [
-        { name = "NODE_ENV", value = var.environment },
-        { name = "PORT", value = tostring(var.container_port) }
-      ]
+      # Merge environment variables: container_environment_variables + defaults
+      environment = concat(
+        [
+          { name = "NODE_ENV", value = var.environment },
+          { name = "PORT", value = tostring(var.container_port) }
+        ],
+        [for name, value in var.container_environment_variables : { name = name, value = value }]
+      )
 
       # Security: read-only root filesystem
       readonlyRootFilesystem = false # Set true once app supports it
@@ -475,7 +512,12 @@ resource "aws_ecs_service" "app" {
     ignore_changes = [task_definition, desired_count]
   }
 
-  depends_on = [aws_lb_listener.http, aws_iam_role.task_execution]
+  # Depend on created roles (not custom ones)
+  depends_on = [
+    aws_lb_listener.http,
+    aws_iam_role.task_execution,
+    aws_iam_role.task
+  ]
 }
 
 # ─── AUTO-SCALING ─────────────────────────────────────────────────────────────

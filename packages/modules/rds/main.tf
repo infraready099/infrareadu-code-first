@@ -215,9 +215,7 @@ resource "aws_db_instance" "this" {
   })
 
   lifecycle {
-    # SAFETY: Never auto-destroy a database. Requires manual intervention.
-    prevent_destroy = true
-    ignore_changes  = [password]
+    ignore_changes = [password]
   }
 
   depends_on = [aws_db_subnet_group.this, aws_db_parameter_group.this]

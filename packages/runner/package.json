@@ -5,18 +5,22 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --outfile=dist/index.js --external:@aws-sdk/*",
+    "local": "bun run src/local.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@aws-sdk/client-config-service": "^3.1018.0",
     "@aws-sdk/client-ec2": "^3.1008.0",
     "@aws-sdk/client-ecr": "^3.1013.0",
     "@aws-sdk/client-ecs": "^3.1012.0",
     "@aws-sdk/client-elastic-load-balancing-v2": "^3.1012.0",
     "@aws-sdk/client-iam": "^3.1021.0",
+    "@aws-sdk/client-kms": "^3.1016.0",
     "@aws-sdk/client-s3": "^3.729.0",
     "@aws-sdk/client-secrets-manager": "^3.1012.0",
     "@aws-sdk/client-sts": "^3.729.0",
-    "@supabase/supabase-js": "^2.47.10"
+    "@supabase/supabase-js": "^2.47.10",
+    "dotenv": "^17.3.1"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.149",

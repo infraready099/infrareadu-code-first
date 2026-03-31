@@ -19,6 +19,7 @@ import {
   DescribeNatGatewaysCommand,
   DeleteNatGatewayCommand,
   DescribeRouteTablesCommand,
+  DescribeSecurityGroupsCommand,
 } from "@aws-sdk/client-ec2";
 import {
   ElasticLoadBalancingV2Client,
@@ -26,8 +27,10 @@ import {
   DescribeLoadBalancersCommand as DescribeALBsCommand,
 } from "@aws-sdk/client-elastic-load-balancing-v2";
 import { ECRClient, DescribeRepositoriesCommand } from "@aws-sdk/client-ecr";
-import { ECSClient, DescribeClustersCommand } from "@aws-sdk/client-ecs";
+import { ECSClient, DescribeClustersCommand, DescribeServicesCommand, DeleteServiceCommand, UpdateServiceCommand } from "@aws-sdk/client-ecs";
 import { IAMClient, GetRoleCommand } from "@aws-sdk/client-iam";
+import { KMSClient, DescribeKeyCommand } from "@aws-sdk/client-kms";
+import { ConfigServiceClient, DescribeConfigurationRecordersCommand, DescribeDeliveryChannelsCommand } from "@aws-sdk/client-config-service";
 import {
   SecretsManagerClient,
   DescribeSecretCommand,
@@ -153,6 +156,38 @@ export async function planOpenTofu(opts: OpenTofuOptions): Promise<PlanSummary> 
 
     // No changes: "No changes. Infrastructure is up-to-date."
     return { toAdd: 0, toChange: 0, toDestroy: 0 };
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+    rmSync(providerCacheDir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Read current state outputs for a module without applying any changes.
+ * Used by planAll to pass accurate cross-module outputs (e.g. ECS SG → RDS) when
+ * replanning an already-deployed environment. Returns {} if no state exists yet.
+ */
+export async function getModuleOutputs(opts: OpenTofuOptions): Promise<Record<string, unknown>> {
+  const { module, config, credentials, projectId, region, awsAccountId, deploymentId, onLog } = opts;
+
+  const { workDir, backendConfigPath, stateBucket, env, providerCacheDir } = buildWorkDir(
+    module, config, credentials, projectId, region, awsAccountId, deploymentId
+  );
+
+  try {
+    await ensureStateBucket(stateBucket, region, credentials);
+    await runTofu(["init", `-backend-config=${backendConfigPath}`, "-reconfigure"], workDir, env, onLog);
+
+    let raw = "";
+    const capture: typeof onLog = async (_level, line) => { raw += line; };
+    try {
+      await runTofu(["output", "-json"], workDir, env, capture);
+      const parsed = JSON.parse(raw) as Record<string, { value: unknown }>;
+      return Object.fromEntries(Object.entries(parsed).map(([k, v]) => [k, v.value]));
+    } catch {
+      // No state yet (fresh environment) — return empty outputs
+      return {};
+    }
   } finally {
     rmSync(workDir, { recursive: true, force: true });
     rmSync(providerCacheDir, { recursive: true, force: true });
@@ -529,11 +564,18 @@ async function tryImportOrphans(
     }
   }
 
-  // Look up ELB Target Group + ALB ARNs, ECR repo name, and ECS cluster for ECS imports
+  // Look up ELB Target Group + ALB ARNs, ECR repo name, ECS cluster, and security groups for ECS imports
   let tgArn = "";
   let albArn = "";
   let ecrRepoName = "";
   let ecsClusterArn = "";
+  let ecsServiceImportId = "";
+  let albSgId = "";
+  let ecsTasksSgId = "";
+  // Security module: KMS key ARN, Config recorder name, and delivery channel name for import
+  let securityKmsKeyArn = "";
+  let configRecorderName = "";
+  let configDeliveryChannelName = "";
   if (module === "ecs") {
     const elbCreds = {
       accessKeyId: env.AWS_ACCESS_KEY_ID!,
@@ -565,7 +607,75 @@ async function tryImportOrphans(
       if (cluster?.status === "ACTIVE") {
         ecsClusterArn = cluster.clusterArn ?? "";
       }
-    } catch { /* cluster doesn't exist yet — fine */ }
+
+      // Also look up the ECS service — "not idempotent" error if service exists but not in state
+      if (ecsClusterArn) {
+        const svcResult = await ecs.send(new DescribeServicesCommand({
+          cluster: `${name}-cluster`,
+          services: [`${name}-service`],
+        }));
+        const svc = svcResult.services?.[0];
+        if (svc?.status === "ACTIVE" || svc?.status === "DRAINING") {
+          // Service is live — import it so tofu manages it
+          ecsServiceImportId = `${name}-cluster/${name}-service`;
+        } else if (svc?.status === "INACTIVE") {
+          // INACTIVE services can't be cleanly imported; delete so tofu can recreate
+          try {
+            await ecs.send(new UpdateServiceCommand({
+              cluster: `${name}-cluster`,
+              service: `${name}-service`,
+              desiredCount: 0,
+            }));
+          } catch { /* already at 0 or not updatable */ }
+          try {
+            await ecs.send(new DeleteServiceCommand({
+              cluster: `${name}-cluster`,
+              service: `${name}-service`,
+              force: true,
+            }));
+          } catch { /* already gone */ }
+        }
+      }
+    } catch { /* cluster/service doesn't exist yet — fine */ }
+
+    // Look up security groups by name — they're orphan-prone when apply fails mid-run
+    try {
+      const ec2 = new EC2Client({ region, credentials: elbCreds });
+      const sgResult = await ec2.send(new DescribeSecurityGroupsCommand({
+        Filters: [
+          { Name: "group-name", Values: [`${name}-alb-sg`, `${name}-ecs-tasks-sg`] },
+        ],
+      }));
+      for (const sg of sgResult.SecurityGroups ?? []) {
+        if (sg.GroupName === `${name}-alb-sg`)       albSgId      = sg.GroupId ?? "";
+        if (sg.GroupName === `${name}-ecs-tasks-sg`) ecsTasksSgId = sg.GroupId ?? "";
+      }
+    } catch { /* SGs don't exist yet — fine */ }
+  }
+
+  // Security module: look up existing KMS key via its alias so we can import it
+  if (module === "security") {
+    const kmsCreds = {
+      accessKeyId: env.AWS_ACCESS_KEY_ID!,
+      secretAccessKey: env.AWS_SECRET_ACCESS_KEY!,
+      sessionToken: env.AWS_SESSION_TOKEN,
+    };
+    try {
+      const kms = new KMSClient({ region, credentials: kmsCreds });
+      const keyResult = await kms.send(new DescribeKeyCommand({ KeyId: `alias/${name}-security` }));
+      securityKmsKeyArn = keyResult.KeyMetadata?.Arn ?? "";
+    } catch { /* KMS key/alias doesn't exist yet — fine */ }
+
+    // Look up existing Config recorder + delivery channel — AWS allows only 1 each per account/region
+    try {
+      const cfgClient = new ConfigServiceClient({ region, credentials: kmsCreds });
+      const [recorderResult, channelResult] = await Promise.all([
+        cfgClient.send(new DescribeConfigurationRecordersCommand({})),
+        cfgClient.send(new DescribeDeliveryChannelsCommand({})),
+      ]);
+      configRecorderName        = recorderResult.ConfigurationRecorders?.[0]?.name ?? "";
+      configDeliveryChannelName = channelResult.DeliveryChannels?.[0]?.name ?? "";
+    } catch { /* no recorder yet — fine */ }
   }
 
   // Look up ECS IAM role names — import them if they already exist in AWS
@@ -604,16 +714,39 @@ async function tryImportOrphans(
       // IAM roles: only import if confirmed to exist in AWS (pre-checked above)
       ...(ecsTaskRoleName      ? [["aws_iam_role.task",           ecsTaskRoleName]      as [string, string]] : []),
       ...(ecsExecutionRoleName ? [["aws_iam_role.task_execution", ecsExecutionRoleName] as [string, string]] : []),
-      ...(ecsClusterArn ? [["aws_ecs_cluster.this",    ecsClusterArn] as [string, string]] : []),
-      ...(ecrRepoName   ? [["aws_ecr_repository.app",  ecrRepoName]   as [string, string]] : []),
-      ...(tgArn         ? [["aws_lb_target_group.app", tgArn]         as [string, string]] : []),
-      ...(albArn        ? [["aws_lb.app",               albArn]        as [string, string]] : []),
+      ...(ecsClusterArn      ? [["aws_ecs_cluster.this",         ecsClusterArn]      as [string, string]] : []),
+      ...(ecsServiceImportId ? [["aws_ecs_service.app",          ecsServiceImportId] as [string, string]] : []),
+      ...(ecrRepoName        ? [["aws_ecr_repository.app",       ecrRepoName]        as [string, string]] : []),
+      ...(tgArn              ? [["aws_lb_target_group.app",      tgArn]              as [string, string]] : []),
+      ...(albArn             ? [["aws_lb.app",                   albArn]             as [string, string]] : []),
+      ...(albSgId            ? [["aws_security_group.alb",       albSgId]            as [string, string]] : []),
+      ...(ecsTasksSgId       ? [["aws_security_group.ecs_tasks", ecsTasksSgId]       as [string, string]] : []),
     ],
     rds: [
       ["aws_cloudwatch_log_group.rds",    `/infraready/${name}/rds`],
     ],
     kms: [
       // KMS keys can't be imported without ARN — skip
+    ],
+    security: [
+      // Resources that are orphan-prone when security apply fails mid-run
+      // Static name patterns from security/main.tf
+      ["aws_cloudwatch_log_group.cloudtrail", `/infraready/${name}/cloudtrail`],
+      ["aws_s3_bucket.cloudtrail",            `${name}-cloudtrail-${accountId}`],
+      ["aws_iam_role.cloudtrail",             `${name}-cloudtrail-role`],
+      ["aws_iam_role.config[0]",              `${name}-config-role`],
+      ["aws_iam_role.github_deploy[0]",                  `${name}-github-deploy`],
+      ["aws_cloudtrail.this",                           `${name}-trail`],
+      // Config recorder + delivery channel: use actual names from AWS (only 1 allowed per account/region)
+      ...(configRecorderName        ? [["aws_config_configuration_recorder.this[0]", configRecorderName]        as [string, string]] : []),
+      ...(configDeliveryChannelName ? [["aws_config_delivery_channel.this[0]",       configDeliveryChannelName] as [string, string]] : []),
+      // OIDC provider: must use ARN (not URL) as the import ID
+      ["aws_iam_openid_connect_provider.github_actions[0]", `arn:aws:iam::${accountId}:oidc-provider/token.actions.githubusercontent.com`],
+      // KMS key requires a runtime lookup (ARN not derivable from name alone)
+      ...(securityKmsKeyArn ? [
+        ["aws_kms_key.security",   securityKmsKeyArn]       as [string, string],
+        ["aws_kms_alias.security", `alias/${name}-security`] as [string, string],
+      ] : []),
     ],
   };
 
@@ -623,12 +756,12 @@ async function tryImportOrphans(
     try {
       const tfvarsPath = join(workDir, "terraform.tfvars.json");
       await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, address, id], { cwd: workDir, env });
-      await onLog("info", `[tofu] Imported existing resource: ${address}`);
-    } catch (importErr) {
-      const importMsg = (importErr as Error).message ?? String(importErr);
-      // "already managed" = already in state = fine. Anything else = log for debugging.
-      if (!importMsg.includes("already managed") && !importMsg.includes("already exists in the state")) {
-        await onLog("warn", `[tofu] Import skipped for ${address} (${id}): ${importMsg.slice(0, 200)}`);
+      await onLog("info", `[tofu] Imported existing resource: ${address} (${id})`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // "already managed" means it's in state — fine. Otherwise log for debugging.
+      if (!msg.includes("already managed") && !msg.includes("Cannot import") && !msg.includes("already exists in the state")) {
+        await onLog("warn", `[tofu] Import skipped ${address}: ${msg.slice(0, 200)}`);
       }
     }
   }

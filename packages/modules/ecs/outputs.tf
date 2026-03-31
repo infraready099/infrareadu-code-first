@@ -34,8 +34,13 @@ output "ecs_task_security_group_id" {
 }
 
 output "task_execution_role_arn" {
-  description = "ARN of the ECS task execution role."
-  value       = aws_iam_role.task_execution.arn
+  description = "ARN of the ECS task execution role (allows ECS to pull images, logs, and read secrets). Use this if you need to grant additional permissions for image pulling or secret access."
+  value       = local.task_execution_role_arn
+}
+
+output "task_role_arn" {
+  description = "ARN of the ECS task role (what the running application can do). Use this to grant the app permissions to S3, DynamoDB, etc."
+  value       = local.task_role_arn
 }
 
 output "app_url" {

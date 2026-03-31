@@ -19,6 +19,8 @@ import {
   Zap,
   TrendingUp,
   Check,
+  Sparkles,
+  CreditCard,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -26,9 +28,22 @@ import { createClient } from "@/lib/supabase/client";
 // Types
 // ---------------------------------------------------------------------------
 
-type Step = 1 | 2 | 3;
+type Step = 1 | 2 | 3 | 4;
 type AppType = "nextjs" | "python" | "java" | "ai" | "other";
 type DeploymentTier = "lean" | "production" | "scale";
+type BuilderPlatform =
+  | "lovable"
+  | "bolt"
+  | "cursor"
+  | "base44"
+  | "v0"
+  | "manus"
+  | "replit"
+  | "other";
+
+interface StepZeroData {
+  builderPlatform: BuilderPlatform | "";
+}
 
 interface StepOneData {
   repoUrl: string;
@@ -91,6 +106,7 @@ const TIERS: Record<DeploymentTier, {
   accent: string;
   ring: string;
   badge: string;
+  savings: string;
 }> = {
   lean: {
     label:   "Lean",
@@ -101,6 +117,7 @@ const TIERS: Record<DeploymentTier, {
     accent:  "text-cyan-400",
     ring:    "ring-cyan-500/40 border-cyan-500/30",
     badge:   "bg-cyan-500/10 text-cyan-400",
+    savings: "vs ~$65/mo on Railway",
   },
   production: {
     label:   "Production",
@@ -111,6 +128,7 @@ const TIERS: Record<DeploymentTier, {
     accent:  "text-violet-400",
     ring:    "ring-violet-500/40 border-violet-500/30",
     badge:   "bg-violet-500/10 text-violet-400",
+    savings: "vs ~$150/mo on Railway + Render",
   },
   scale: {
     label:   "Scale",
@@ -121,7 +139,91 @@ const TIERS: Record<DeploymentTier, {
     accent:  "text-amber-400",
     ring:    "ring-amber-500/40 border-amber-500/30",
     badge:   "bg-amber-500/10 text-amber-400",
+    savings: "vs ~$500/mo on managed services",
   },
+};
+
+// ---------------------------------------------------------------------------
+// Builder platform definitions
+// ---------------------------------------------------------------------------
+
+interface BuilderPlatformDef {
+  id: BuilderPlatform;
+  name: string;
+  icon: string;
+  iconBg: string;
+  supported: "full" | "beta";
+  instructions: string;
+}
+
+const BUILDER_PLATFORMS: BuilderPlatformDef[] = [
+  {
+    id: "lovable",
+    name: "Lovable",
+    icon: "💜",
+    iconBg: "rgba(139,92,246,0.15)",
+    supported: "full",
+    instructions: "In Lovable, click the GitHub icon → Push to GitHub → paste the repo URL on the next step.",
+  },
+  {
+    id: "bolt",
+    name: "Bolt",
+    icon: "⚡",
+    iconBg: "rgba(234,179,8,0.15)",
+    supported: "full",
+    instructions: "In Bolt, click Export → Download ZIP → then push to GitHub. Or use Bolt's GitHub integration directly.",
+  },
+  {
+    id: "cursor",
+    name: "Cursor",
+    icon: "◎",
+    iconBg: "rgba(14,165,233,0.15)",
+    supported: "full",
+    instructions: "Your code is already local. Push to GitHub: git init && git add . && git push origin main",
+  },
+  {
+    id: "base44",
+    name: "Base44",
+    icon: "44",
+    iconBg: "rgba(16,185,129,0.15)",
+    supported: "full",
+    instructions: "In Base44, go to Settings → Export → GitHub. Connect your GitHub account and export the repo.",
+  },
+  {
+    id: "v0",
+    name: "v0 by Vercel",
+    icon: "v0",
+    iconBg: "rgba(255,255,255,0.06)",
+    supported: "beta",
+    instructions: "In v0, click Share → Export to GitHub. You'll need a GitHub account connected.",
+  },
+  {
+    id: "manus",
+    name: "Manus",
+    icon: "M",
+    iconBg: "rgba(249,115,22,0.15)",
+    supported: "beta",
+    instructions: "Export your Manus project to GitHub via the Deploy tab → GitHub Export.",
+  },
+  {
+    id: "replit",
+    name: "Replit",
+    icon: "R",
+    iconBg: "rgba(239,68,68,0.15)",
+    supported: "beta",
+    instructions: "In Replit, go to Git → Connect to GitHub → push your project.",
+  },
+];
+
+const BUILDER_INSTRUCTIONS: Record<BuilderPlatform, string> = {
+  lovable: "In Lovable, click the GitHub icon → Push to GitHub → paste the repo URL on the next step.",
+  bolt:    "In Bolt, click Export → Download ZIP → then push to GitHub. Or use Bolt's GitHub integration directly.",
+  cursor:  "Your code is already local. Push to GitHub: git init && git add . && git push origin main",
+  base44:  "In Base44, go to Settings → Export → GitHub. Connect your GitHub account and export the repo.",
+  v0:      "In v0, click Share → Export to GitHub. You'll need a GitHub account connected.",
+  manus:   "Export your Manus project to GitHub via the Deploy tab → GitHub Export.",
+  replit:  "In Replit, go to Git → Connect to GitHub → push your project.",
+  other:   "Make sure your code is in a GitHub repository. Paste the URL on the next step.",
 };
 
 // ---------------------------------------------------------------------------
@@ -169,9 +271,10 @@ const selectCls =
 // ---------------------------------------------------------------------------
 
 const STEPS = [
-  { num: 1, label: "Repository" },
-  { num: 2, label: "AWS Account" },
-  { num: 3, label: "Configure" },
+  { num: 1, label: "Builder" },
+  { num: 2, label: "Repository" },
+  { num: 3, label: "AWS Account" },
+  { num: 4, label: "Configure" },
 ];
 
 function StepBar({ current }: { current: Step }) {
@@ -207,7 +310,7 @@ function StepBar({ current }: { current: Step }) {
 
               {/* Label */}
               <span
-                className="text-sm font-medium transition-colors duration-200"
+                className="text-sm font-medium transition-colors duration-200 hidden sm:block"
                 style={
                   active
                     ? { color: "#F0F9FF" }
@@ -223,7 +326,7 @@ function StepBar({ current }: { current: Step }) {
             {/* Connector */}
             {i < STEPS.length - 1 && (
               <div
-                className="w-14 h-px mx-4 transition-colors duration-200"
+                className="w-8 sm:w-14 h-px mx-2 sm:mx-4 transition-colors duration-200"
                 style={{ background: done ? "rgba(52,211,153,0.3)" : "rgba(255,255,255,0.07)" }}
               />
             )}
@@ -235,7 +338,160 @@ function StepBar({ current }: { current: Step }) {
 }
 
 // ---------------------------------------------------------------------------
-// Step 1 — GitHub repo + app type
+// Step 0 — Builder Platform Selection
+// ---------------------------------------------------------------------------
+
+function StepZero({
+  data,
+  onChange,
+  onContinue,
+}: {
+  data: StepZeroData;
+  onChange: (patch: Partial<StepZeroData>) => void;
+  onContinue: () => void;
+}) {
+  const selected = data.builderPlatform;
+  const instructions = selected ? BUILDER_INSTRUCTIONS[selected] : null;
+  const isCursorCode = selected === "cursor";
+
+  return (
+    <div className="space-y-5">
+      {/* Platform grid — Row 1: 3 cols, Row 2: 4 cols */}
+      <div className="space-y-2.5">
+        {/* Row 1 */}
+        <div className="grid grid-cols-3 gap-2.5">
+          {BUILDER_PLATFORMS.slice(0, 3).map((p) => (
+            <BuilderCard
+              key={p.id}
+              platform={p}
+              selected={selected === p.id}
+              onSelect={() => onChange({ builderPlatform: p.id })}
+            />
+          ))}
+        </div>
+        {/* Row 2 */}
+        <div className="grid grid-cols-4 gap-2.5">
+          {BUILDER_PLATFORMS.slice(3).map((p) => (
+            <BuilderCard
+              key={p.id}
+              platform={p}
+              selected={selected === p.id}
+              onSelect={() => onChange({ builderPlatform: p.id })}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* "Built it myself" link */}
+      <div className="flex justify-center">
+        <button
+          type="button"
+          onClick={() => onChange({ builderPlatform: "other" })}
+          className={`text-sm transition-colors duration-150 underline underline-offset-4 ${
+            selected === "other"
+              ? "text-orange-400"
+              : "text-gray-500 hover:text-gray-300"
+          }`}
+        >
+          Built it myself / Other
+        </button>
+      </div>
+
+      {/* Platform-specific instructions */}
+      {instructions && (
+        <div
+          className="rounded-xl border p-4 space-y-2 transition-all duration-200"
+          style={{
+            background: "rgba(14,165,233,0.04)",
+            borderColor: "rgba(14,165,233,0.18)",
+          }}
+        >
+          <div className="flex items-center gap-2 text-xs font-semibold text-sky-400 uppercase tracking-wider">
+            <Sparkles className="w-3.5 h-3.5" />
+            How to export to GitHub
+          </div>
+          {isCursorCode ? (
+            <div className="space-y-1">
+              <p className="text-sm text-gray-300">Your code is already local. Push to GitHub:</p>
+              <code className="block text-xs bg-[#0d1117] border border-white/[0.06] rounded-lg px-3 py-2 text-orange-300 font-mono">
+                git init &amp;&amp; git add . &amp;&amp; git push origin main
+              </code>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-300 leading-relaxed">{instructions}</p>
+          )}
+        </div>
+      )}
+
+      <button
+        onClick={onContinue}
+        disabled={!selected}
+        className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-orange-500 hover:bg-orange-400 disabled:bg-orange-500/40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all"
+      >
+        Continue
+        <ArrowRight className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
+function BuilderCard({
+  platform,
+  selected,
+  onSelect,
+}: {
+  platform: BuilderPlatformDef;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const isFullSupport = platform.supported === "full";
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`relative flex flex-col items-center gap-2 py-4 px-3 rounded-xl border text-center transition-all duration-150 cursor-pointer ${
+        selected
+          ? "border-orange-500/50 bg-orange-500/10 ring-1 ring-orange-500/30"
+          : "border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12] hover:bg-white/[0.04]"
+      }`}
+    >
+      {/* Badge */}
+      <div className="absolute top-2 right-2">
+        <span
+          className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full ${
+            isFullSupport
+              ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20"
+              : "bg-orange-500/15 text-orange-400 border border-orange-500/20"
+          }`}
+        >
+          {isFullSupport ? "Supported" : "Beta"}
+        </span>
+      </div>
+
+      {/* Icon */}
+      <div
+        className="w-10 h-10 rounded-xl flex items-center justify-center text-base font-bold shrink-0"
+        style={{ background: platform.iconBg }}
+      >
+        <span className={`font-bold text-sm ${selected ? "opacity-100" : "opacity-80"}`}>
+          {platform.icon}
+        </span>
+      </div>
+
+      {/* Name */}
+      <span
+        className={`text-xs font-medium leading-tight ${
+          selected ? "text-white" : "text-gray-400"
+        }`}
+      >
+        {platform.name}
+      </span>
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Step 1 — GitHub repo + app type (was Step 1, now Step 2)
 // ---------------------------------------------------------------------------
 
 const APP_TYPE_OPTIONS: { value: AppType; label: string; icon: string; hint: string }[] = [
@@ -250,10 +506,12 @@ function StepOne({
   data,
   onChange,
   onContinue,
+  onBack,
 }: {
   data: StepOneData;
   onChange: (patch: Partial<StepOneData>) => void;
   onContinue: () => Promise<void>;
+  onBack: () => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState("");
@@ -353,20 +611,29 @@ function StepOne({
         </div>
       )}
 
-      <button
-        onClick={handleContinue}
-        disabled={loading || !!urlError || !data.repoUrl || !data.projectName}
-        className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-orange-500 hover:bg-orange-400 disabled:bg-orange-500/40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all"
-      >
-        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-        {loading ? "Creating project…" : "Continue"}
-      </button>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={onBack}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-gray-400 hover:text-gray-200 transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back
+        </button>
+        <button
+          onClick={handleContinue}
+          disabled={loading || !!urlError || !data.repoUrl || !data.projectName}
+          className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-orange-500 hover:bg-orange-400 disabled:bg-orange-500/40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all"
+        >
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+          {loading ? "Creating project…" : "Continue"}
+        </button>
+      </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Step 2 — Connect AWS Account
+// Step 2 — Connect AWS Account (was Step 2)
 // ---------------------------------------------------------------------------
 
 function StepTwo({
@@ -402,13 +669,16 @@ function StepTwo({
     setVerifyError("");
     setVerifying(true);
     try {
-      // If using existing role with custom External ID, update it in Supabase first
       if (existingRole && customExtId.trim()) {
         const supabase = createClient();
-        await supabase
+        const { error: extIdError } = await supabase
           .from("projects")
           .update({ aws_external_id: customExtId.trim() })
           .eq("id", projectId);
+        if (extIdError) {
+          setVerifyError("Failed to save external ID. Please try again.");
+          return;
+        }
       }
       const res  = await fetch("/api/aws/connect", {
         method:  "POST",
@@ -578,7 +848,7 @@ function StepTwo({
 }
 
 // ---------------------------------------------------------------------------
-// Step 3 — Configure & Deploy
+// Step 3 — Configure & Deploy (was Step 3, now Step 4)
 // ---------------------------------------------------------------------------
 
 const AWS_REGIONS = [
@@ -623,6 +893,10 @@ function TierCard({
       <p className={`text-lg font-bold ${selected ? tier.accent : "text-white"}`}>{tier.cost}</p>
       <p className="text-xs text-gray-500 mt-0.5 leading-snug">{tier.bestFor}</p>
       <p className="text-xs text-gray-400 mt-2 leading-snug">{tier.tagline}</p>
+      {/* Savings callout */}
+      <p className="text-[10px] text-emerald-400/80 mt-2 leading-snug font-medium">
+        {tier.savings}
+      </p>
     </button>
   );
 }
@@ -766,7 +1040,6 @@ function StepThree({
     }
 
     try {
-      // Get the session token and send it explicitly — more reliable than cookie propagation
       const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
       const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
@@ -802,6 +1075,13 @@ function StepThree({
       <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-400">
         <CheckCircle2 className="w-4 h-4 shrink-0" />
         Deploying to AWS account <span className="font-mono ml-1">{accountId}</span>
+      </div>
+
+      {/* AWS Activate Credits badge */}
+      <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sm text-sky-400">
+        <CreditCard className="w-4 h-4 shrink-0" />
+        <span>AWS Activate Credits Accepted</span>
+        <span className="text-xs text-sky-500/70 ml-auto">Apply credits to offset your AWS bill</span>
       </div>
 
       {/* App type detected */}
@@ -945,7 +1225,7 @@ function StepThree({
         <p className="mt-1.5 text-xs text-gray-600">Cost alerts and security notifications.</p>
       </div>
 
-      {/* ALB deletion protection — only shown when ECS is selected */}
+      {/* ALB deletion protection */}
       {(data.modules.ecs || data.modules["app-runner"]) && (
         <div className="flex items-start justify-between gap-4 py-3 px-4 rounded-xl bg-gray-800/50 border border-gray-700/50">
           <div>
@@ -1002,9 +1282,10 @@ function StepThree({
 // ---------------------------------------------------------------------------
 
 const STEP_META = [
-  { icon: <Github className="w-4 h-4" />,  title: "Import repository",          sub: "Connect your GitHub repo to get started." },
-  { icon: <Shield className="w-4 h-4" />,  title: "Connect AWS account",         sub: "We deploy into your own AWS account — you stay in control." },
-  { icon: <Rocket className="w-4 h-4" />,  title: "Configure infrastructure",    sub: "Pick a tier and customize your modules." },
+  { icon: <Sparkles className="w-4 h-4" />, title: "Where was your app built?",     sub: "We'll guide you through exporting your code to GitHub." },
+  { icon: <Github className="w-4 h-4" />,   title: "Import repository",             sub: "Connect your GitHub repo to get started." },
+  { icon: <Shield className="w-4 h-4" />,   title: "Connect AWS account",           sub: "We deploy into your own AWS account — you stay in control." },
+  { icon: <Rocket className="w-4 h-4" />,   title: "Configure infrastructure",      sub: "Pick a tier and customize your modules." },
 ];
 
 function NewProjectPageInner() {
@@ -1014,6 +1295,8 @@ function NewProjectPageInner() {
   const [projectId, setProjectId] = useState(() =>
     typeof window !== "undefined" ? sessionStorage.getItem("wizard_project_id") ?? "" : ""
   );
+
+  const [stepZeroData, setStepZeroData] = useState<StepZeroData>({ builderPlatform: "" });
 
   const [stepOneData, setStepOneData] = useState<StepOneData>({
     repoUrl: "", projectName: "", appType: "nextjs",
@@ -1031,19 +1314,17 @@ function NewProjectPageInner() {
   });
 
   // Resume wizard after GitHub App install redirects back with ?projectId=&step=2
+  // Note: in the new 4-step wizard, step=2 maps to the old step=1 (Repository)
+  // but the redirect comes back to what used to be step 2 (AWS Account), which is now step 3.
+  // We keep the same URL param value (step=2) and map it to wizard step 3.
   useEffect(() => {
     const pid  = searchParams.get("projectId");
-    const step = searchParams.get("step");
-    if (pid && step === "2") {
+    const stepParam = searchParams.get("step");
+    if (pid && stepParam === "2") {
       sessionStorage.setItem("wizard_project_id", pid);
       setProjectId(pid);
-      setStep(2);
+      setStep(3);
 
-      // CRITICAL: fetch the actual aws_external_id stored in the DB for this project.
-      // The UI's stepTwoData.externalId was regenerated on remount (after GitHub redirect),
-      // so it no longer matches what was saved to the project row during Step 1.
-      // If we show the wrong ExternalId, the user launches CloudFormation with the wrong
-      // value → STS AssumeRole fails with "Access denied".
       const supabase = createClient();
       supabase
         .from("projects")
@@ -1059,7 +1340,6 @@ function NewProjectPageInner() {
   }, [searchParams]);
 
   const handleStepOneContinue = useCallback(async () => {
-    // Clear any stale projectId from a previous session before creating a new project
     sessionStorage.removeItem("wizard_project_id");
     setProjectId("");
 
@@ -1089,7 +1369,6 @@ function NewProjectPageInner() {
       containerMemory: appDefaults.memory,
     }));
 
-    // Reuse existing GitHub installation if available (user already installed the app)
     const { data: existingInstall } = await supabase
       .from("projects")
       .select("github_installation_id")
@@ -1103,14 +1382,10 @@ function NewProjectPageInner() {
         .from("projects")
         .update({ github_installation_id: existingInstall.github_installation_id })
         .eq("id", project.id);
-      // Already installed — go straight to Step 2
       sessionStorage.setItem("wizard_project_id", project.id);
       setProjectId(project.id);
-      setStep(2);
+      setStep(3);
     } else {
-      // First time — redirect to GitHub App installation.
-      // GitHub will redirect back to /api/github/callback?state=<projectId>
-      // which saves installation_id then redirects back to step=2.
       sessionStorage.setItem("wizard_project_id", project.id);
       setProjectId(project.id);
       window.location.href = `/api/github/connect?projectId=${project.id}`;
@@ -1140,7 +1415,6 @@ function NewProjectPageInner() {
       >
         <StepBar current={step} />
 
-        {/* Back to projects link */}
         <a
           href="/projects"
           className="text-xs font-medium transition-colors duration-150"
@@ -1191,29 +1465,37 @@ function NewProjectPageInner() {
 
           {/* Step content */}
           {step === 1 && (
+            <StepZero
+              data={stepZeroData}
+              onChange={(patch) => setStepZeroData((d) => ({ ...d, ...patch }))}
+              onContinue={() => setStep(2)}
+            />
+          )}
+          {step === 2 && (
             <StepOne
               data={stepOneData}
               onChange={(patch) => setStepOneData((d) => ({ ...d, ...patch }))}
               onContinue={handleStepOneContinue}
-            />
-          )}
-          {step === 2 && (
-            <StepTwo
-              data={stepTwoData}
-              projectId={projectId}
-              onChange={(patch) => setStepTwoData((d) => ({ ...d, ...patch }))}
-              onContinue={() => setStep(3)}
               onBack={() => setStep(1)}
             />
           )}
           {step === 3 && (
+            <StepTwo
+              data={stepTwoData}
+              projectId={projectId}
+              onChange={(patch) => setStepTwoData((d) => ({ ...d, ...patch }))}
+              onContinue={() => setStep(4)}
+              onBack={() => setStep(2)}
+            />
+          )}
+          {step === 4 && (
             <StepThree
               data={stepThreeData}
               appType={stepOneData.appType}
               accountId={stepTwoData.accountId}
               projectId={projectId}
               onChange={(patch) => setStepThreeData((d) => ({ ...d, ...patch }))}
-              onBack={() => setStep(2)}
+              onBack={() => setStep(3)}
             />
           )}
         </div>

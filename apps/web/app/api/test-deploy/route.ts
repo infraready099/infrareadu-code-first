@@ -161,7 +161,7 @@ export async function POST(req: NextRequest) {
       config:     resolvedConfig,
       status:     "queued",
       logs:       [],
-      action:     "destroy",
+      action:     "test-destroy",
     })
     .select()
     .single();
@@ -200,7 +200,7 @@ export async function POST(req: NextRequest) {
   try {
     await sqs.send(new SendMessageCommand({
       QueueUrl:               process.env.DEPLOY_QUEUE_URL,
-      MessageBody:            JSON.stringify({ ...commonJobBase, action: "destroy", deploymentId: destroyDeployment.id }),
+      MessageBody:            JSON.stringify({ ...commonJobBase, action: "test-destroy", deploymentId: destroyDeployment.id }),
       MessageGroupId:         projectId,
       MessageDeduplicationId: destroyDeployment.id,
     }));

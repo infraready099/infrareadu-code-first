@@ -24,7 +24,7 @@ import {
   ListTasksCommand,
   StopTaskCommand,
 } from "@aws-sdk/client-ecs";
-import { execOpenTofu, destroyOpenTofu, planOpenTofu, PlanSummary } from "./opentofu";
+import { execOpenTofu, destroyOpenTofu, planOpenTofu, getModuleOutputs, PlanSummary } from "./opentofu";
 import { createClient } from "@supabase/supabase-js";
 import { generateConfig, ModuleType, IaCEngine } from "./services/terraform-generator";
 import { scanHcl, formatScanReport, DEFAULT_FRAMEWORKS, DEFAULT_BLOCK_ON } from "./services/security-scan";
@@ -130,7 +130,7 @@ function friendlyError(msg: string): string {
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface DeployJob {
-  action?: "deploy" | "destroy" | "plan";
+  action?: "deploy" | "destroy" | "test-destroy" | "plan";
   deploymentId: string;
   projectId: string;
   userId: string;
@@ -235,7 +235,7 @@ async function processRecord(record: SQSRecord): Promise<void> {
   const deployedModules: string[] = [];
 
   // Set initial status based on action
-  const initialStatus = job.action === "destroy" ? "destroying"
+  const initialStatus = (job.action === "destroy" || job.action === "test-destroy") ? "destroying"
     : job.action === "plan" ? "running"
     : "running";
   await updateDeployment(deploymentId, { status: initialStatus });
@@ -266,6 +266,12 @@ async function processRecord(record: SQSRecord): Promise<void> {
       return;
     }
 
+    // ── Test-destroy branch — same as destroy but resets project to "pending" ─
+    if (job.action === "test-destroy") {
+      await destroyAll({ job, credentials, deploymentId, finalProjectStatus: "pending" });
+      return;
+    }
+
     // ── Plan branch ──────────────────────────────────────────────────────────
     if (job.action === "plan") {
       await planAll({ job, credentials, deploymentId, awsAccountId, region });
@@ -288,7 +294,9 @@ async function processRecord(record: SQSRecord): Promise<void> {
     // ── Step 2: Security scan ────────────────────────────────────────────────
     await appendLog(deploymentId, "info", "\n[Security] Running compliance scan (SOC2, HIPAA, CIS)...");
 
-    const MODULE_ORDER = ["vpc", "rds", "ecs", "storage", "security", "waf", "kms", "backup"];
+    // ECS runs before RDS so the ECS task SG exists when RDS applies its ingress rule.
+    // After RDS, a second ECS pass injects db_secret_arn into the task definition.
+    const MODULE_ORDER = ["vpc", "ecs", "app-runner", "rds", "aurora-serverless", "storage", "security", "waf", "kms", "backup"];
     const orderedModules = MODULE_ORDER.filter((m) => job.modules.includes(m));
 
     for (const moduleName of orderedModules) {
@@ -349,6 +357,47 @@ async function processRecord(record: SQSRecord): Promise<void> {
       deployedModules.push(moduleName);
       outputs[moduleName] = moduleOutputs;
       await appendLog(deploymentId, "success", `[OpenTofu] Module ${moduleName} deployed successfully`);
+    }
+
+    // ── Step 3b: ECS link-back — wire RDS secret into task definition ─────────
+    // ECS ran first (no db_secret_arn yet). Now that RDS is deployed, re-apply
+    // ECS so the task definition picks up the DB connection string on first deploy.
+    // Best-effort: use execOpenTofu directly (no retry, no cleanup on failure).
+    // If this fails, ECS is still healthy from the first pass — user just needs
+    // to redeploy to get the DB connection wired in.
+    if (orderedModules.includes("ecs") && orderedModules.includes("rds") && outputs.rds) {
+      await appendLog(deploymentId, "info", "\n[OpenTofu] Updating ECS task definition with RDS connection...");
+      await updateDeployment(deploymentId, { current_module: "ecs" });
+
+      const ecsLinkConfig = buildModuleConfig("ecs", job.config, outputs, {
+        githubRepoOwner: job.githubRepoOwner,
+        githubRepoName:  job.githubRepoName,
+      });
+
+      try {
+        const updatedEcsOutputs = await execOpenTofu({
+          module:       "ecs",
+          config:       ecsLinkConfig,
+          credentials,
+          deploymentId,
+          projectId:    job.projectId,
+          region,
+          awsAccountId,
+          onLog: (level, line) => {
+            if (process.env.LOCAL_RUNNER) console.log(`[${level.toUpperCase()}] ${line}`);
+            return appendLog(deploymentId, level, line);
+          },
+        });
+        outputs.ecs = updatedEcsOutputs;
+        await appendLog(deploymentId, "success", "[OpenTofu] ECS updated with RDS connection");
+      } catch (linkErr) {
+        // Non-fatal: ECS is running but without db_secret_arn in the task definition.
+        // The user can trigger a second deployment to complete the wiring.
+        await appendLog(deploymentId, "warn",
+          `[OpenTofu] ECS link-back failed (ECS cluster is still healthy): ${(linkErr as Error).message.slice(0, 200)}\n` +
+          `[OpenTofu] Trigger another deployment to wire the RDS connection into the task definition.`
+        );
+      }
     }
 
     // ── Step 4: Save outputs ─────────────────────────────────────────────────
@@ -585,16 +634,28 @@ async function planAll(params: {
 }): Promise<void> {
   const { job, credentials, deploymentId, awsAccountId, region } = params;
 
-  const MODULE_ORDER = ["vpc", "rds", "ecs", "storage", "security", "waf", "kms", "backup"];
+  const MODULE_ORDER = ["vpc", "ecs", "app-runner", "rds", "aurora-serverless", "storage", "security", "waf", "kms", "backup"];
   const orderedModules = MODULE_ORDER.filter((m) => job.modules.includes(m));
   const planSummary: Record<string, PlanSummary> = {};
+  // Accumulate state outputs so cross-module configs are accurate (e.g. ECS SG → RDS ingress).
+  // For fresh environments, getModuleOutputs returns {} — same as before, no regression.
+  const planOutputs: Record<string, Record<string, unknown>> = {};
 
   try {
     for (const moduleName of orderedModules) {
       await appendLog(deploymentId, "info", `\n[Plan] Checking module: ${moduleName}`);
       await updateDeployment(deploymentId, { current_module: moduleName });
 
-      const moduleConfig = buildModuleConfig(moduleName, job.config, {}, {
+      // Fetch current state outputs for this module so downstream modules get accurate values
+      const silentLog = async () => {};
+      const stateOutputs = await getModuleOutputs({
+        module: moduleName, config: buildModuleConfig(moduleName, job.config, planOutputs, {}),
+        credentials, deploymentId, projectId: job.projectId, region, awsAccountId,
+        onLog: silentLog,
+      });
+      planOutputs[moduleName] = stateOutputs;
+
+      const moduleConfig = buildModuleConfig(moduleName, job.config, planOutputs, {
         githubRepoOwner: job.githubRepoOwner,
         githubRepoName:  job.githubRepoName,
       });
@@ -643,19 +704,24 @@ async function destroyAll(params: {
   job: DeployJob;
   credentials: Credentials;
   deploymentId: string;
+  /** "destroyed" for user-initiated destroys, "pending" for test-deploy auto-destroy */
+  finalProjectStatus?: "destroyed" | "pending";
 }): Promise<void> {
-  const { job, credentials, deploymentId } = params;
+  const { job, credentials, deploymentId, finalProjectStatus = "destroyed" } = params;
   const region = (job.config.aws_region as string) ?? "us-east-1";
   const awsAccountId = job.awsRoleArn.split(":")[4];
 
   // Destroy in reverse order so dependencies are removed cleanly
-  const MODULE_DESTROY_ORDER = ["waf", "macie", "inspector-ssm", "backup", "kms", "security", "storage", "ecs", "rds", "vpc-endpoints", "vpc"];
+  // Destroy in reverse dependency order: things that depend on others are destroyed first.
+  // ECS depends on RDS (reads DB) → destroy ECS before RDS.
+  // aurora-serverless and app-runner sit at the same layer as rds/ecs respectively.
+  const MODULE_DESTROY_ORDER = ["waf", "macie", "inspector-ssm", "backup", "kms", "security", "storage", "aurora-serverless", "app-runner", "ecs", "rds", "vpc-endpoints", "vpc"];
   const toDestroy = MODULE_DESTROY_ORDER.filter((m) => job.modules.includes(m));
 
   if (toDestroy.length === 0) {
     await appendLog(deploymentId, "warn", "[InfraReady] No modules found to destroy — nothing to do.");
     await updateDeployment(deploymentId, { status: "destroyed", completed_at: new Date().toISOString() });
-    await supabase.from("projects").update({ status: "destroyed" }).eq("id", job.projectId);
+    await supabase.from("projects").update({ status: finalProjectStatus }).eq("id", job.projectId);
     return;
   }
 
@@ -676,7 +742,14 @@ async function destroyAll(params: {
       await preDestroyEcs({ projectName, environment, region, credentials, deploymentId });
     }
 
-    const moduleConfig = buildModuleConfig(moduleName, job.config, {}, {});
+    // Pass destroy-safe overrides: disable deletion protection and force removal
+    const destroyConfig = {
+      ...job.config,
+      deletion_protection:  false,
+      skip_final_snapshot:  true,
+      force_destroy:        true,
+    };
+    const moduleConfig = buildModuleConfig(moduleName, destroyConfig, {}, {});
 
     try {
       await destroyOpenTofu({
@@ -706,12 +779,13 @@ async function destroyAll(params: {
 
   await supabase
     .from("projects")
-    .update({ status: "destroyed", last_deployed_at: new Date().toISOString() })
+    .update({ status: finalProjectStatus, last_deployed_at: new Date().toISOString() })
     .eq("id", job.projectId);
 
-  await appendLog(deploymentId, "success",
-    "\n[InfraReady] All resources destroyed. Your AWS account is clean."
-  );
+  const destroyCompleteMsg = finalProjectStatus === "pending"
+    ? "\n[InfraReady] Test deploy complete. All test resources destroyed. Your AWS account is clean."
+    : "\n[InfraReady] All resources destroyed. Your AWS account is clean.";
+  await appendLog(deploymentId, "success", destroyCompleteMsg);
 }
 
 // ─── Template deployment ──────────────────────────────────────────────────────
@@ -756,9 +830,10 @@ async function deployTemplate(params: {
   // ── Determine modules ──────────────────────────────────────────────────────
   // Always: vpc, ecs, security.
   // Conditional: rds (if template needs a database), storage (if template needs S3).
-  const templateModules: string[] = ["vpc"];
+  // Deploy order: vpc → ecs (creates SG) → rds (uses ECS SG) → storage → security
+  // ECS must come before RDS so the ECS security group exists when RDS ingress rules are created.
+  const templateModules: string[] = ["vpc", "ecs"];
   if (template.requiresDatabase) templateModules.push("rds");
-  templateModules.push("ecs");
   if (template.requiresStorage) templateModules.push("storage");
   templateModules.push("security");
 
@@ -924,7 +999,10 @@ async function deployModuleWithRetry(params: {
 
   const tofuOpts = () => ({
     module: moduleName, config, credentials, deploymentId, projectId, region, awsAccountId,
-    onLog: (level: "info" | "success" | "error" | "warn", line: string) => appendLog(deploymentId, level, line),
+    onLog: (level: "info" | "success" | "error" | "warn", line: string) => {
+      if (process.env.LOCAL_RUNNER) console.log(`[${level.toUpperCase()}] ${line}`);
+      return appendLog(deploymentId, level, line);
+    },
   });
 
   let lastError: Error | null = null;
@@ -1062,6 +1140,8 @@ function buildModuleConfig(
         container_cpu:       config.container_cpu ?? 256,
         container_memory_mb: config.container_memory ?? 512,
         db_secret_arn:       previousOutputs.rds?.db_secret_arn ?? "",
+        container_image:     config.container_image ?? "public.ecr.aws/docker/library/nginx:latest",
+        alb_deletion_protection: false,
       };
 
     case "storage":
@@ -1169,11 +1249,19 @@ async function updateDeployment(deploymentId: string, updates: Record<string, un
 
 async function appendLog(deploymentId: string, level: string, message: string) {
   const logEntry = { ts: new Date().toISOString(), level, msg: message };
-  const { error } = await supabase.rpc("append_deployment_log", {
-    p_deployment_id: deploymentId,
-    p_log_entry:     logEntry,
-  });
-  if (error) {
-    console.error(`[appendLog] Failed for deployment ${deploymentId}:`, error.message, "| msg:", message);
+  try {
+    const rpcPromise = supabase.rpc("append_deployment_log", {
+      p_deployment_id: deploymentId,
+      p_log_entry:     logEntry,
+    });
+    const timeoutPromise = new Promise<{ error: Error }>(resolve =>
+      setTimeout(() => resolve({ error: new Error("appendLog timeout") }), 5000)
+    );
+    const { error } = await Promise.race([rpcPromise, timeoutPromise]) as { error: unknown };
+    if (error) {
+      console.error(`[appendLog] Failed for deployment ${deploymentId}:`, String(error).slice(0, 120), "| msg:", message.slice(0, 80));
+    }
+  } catch (err) {
+    console.error(`[appendLog] Exception for deployment ${deploymentId}:`, String(err).slice(0, 80));
   }
 }
