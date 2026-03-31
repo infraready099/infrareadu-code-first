@@ -27,6 +27,7 @@ import {
 } from "@aws-sdk/client-elastic-load-balancing-v2";
 import { ECRClient, DescribeRepositoriesCommand } from "@aws-sdk/client-ecr";
 import { ECSClient, DescribeClustersCommand } from "@aws-sdk/client-ecs";
+import { IAMClient, GetRoleCommand } from "@aws-sdk/client-iam";
 import {
   SecretsManagerClient,
   DescribeSecretCommand,
@@ -567,6 +568,28 @@ async function tryImportOrphans(
     } catch { /* cluster doesn't exist yet — fine */ }
   }
 
+  // Look up ECS IAM role names — import them if they already exist in AWS
+  // (created by a prior partial deploy that timed out before state was saved)
+  let ecsTaskRoleName = "";
+  let ecsExecutionRoleName = "";
+  if (module === "ecs") {
+    const iamCreds = {
+      accessKeyId: env.AWS_ACCESS_KEY_ID!,
+      secretAccessKey: env.AWS_SECRET_ACCESS_KEY!,
+      sessionToken: env.AWS_SESSION_TOKEN,
+    };
+    try {
+      const iam = new IAMClient({ region, credentials: iamCreds });
+      await iam.send(new GetRoleCommand({ RoleName: `${name}-ecs-task-role` }));
+      ecsTaskRoleName = `${name}-ecs-task-role`;
+    } catch { /* role doesn't exist yet — fine */ }
+    try {
+      const iam = new IAMClient({ region, credentials: iamCreds });
+      await iam.send(new GetRoleCommand({ RoleName: `${name}-ecs-execution-role` }));
+      ecsExecutionRoleName = `${name}-ecs-execution-role`;
+    } catch { /* role doesn't exist yet — fine */ }
+  }
+
   // Map of module → [ [resource_address, resource_id], ... ]
   // Resource addresses MUST match exactly what's declared in the module's main.tf
   const imports: Record<string, [string, string][]> = {
@@ -577,13 +600,14 @@ async function tryImportOrphans(
     ecs: [
       // Addresses match ecs/main.tf resource declarations exactly
       ["aws_cloudwatch_log_group.app",      `/infraready/${name}/ecs`],
-      ["aws_iam_role.task",                 `${name}-ecs-task-role`],
-      ["aws_iam_role.task_execution",       `${name}-ecs-execution-role`],
       ["aws_s3_bucket.alb_logs",            `${name}-alb-logs-${accountId}`],
-      ...(ecsClusterArn ? [["aws_ecs_cluster.this", ecsClusterArn]  as [string, string]] : []),
-      ...(ecrRepoName   ? [["aws_ecr_repository.app", ecrRepoName]  as [string, string]] : []),
-      ...(tgArn         ? [["aws_lb_target_group.app", tgArn]       as [string, string]] : []),
-      ...(albArn        ? [["aws_lb.app",              albArn]       as [string, string]] : []),
+      // IAM roles: only import if confirmed to exist in AWS (pre-checked above)
+      ...(ecsTaskRoleName      ? [["aws_iam_role.task",           ecsTaskRoleName]      as [string, string]] : []),
+      ...(ecsExecutionRoleName ? [["aws_iam_role.task_execution", ecsExecutionRoleName] as [string, string]] : []),
+      ...(ecsClusterArn ? [["aws_ecs_cluster.this",    ecsClusterArn] as [string, string]] : []),
+      ...(ecrRepoName   ? [["aws_ecr_repository.app",  ecrRepoName]   as [string, string]] : []),
+      ...(tgArn         ? [["aws_lb_target_group.app", tgArn]         as [string, string]] : []),
+      ...(albArn        ? [["aws_lb.app",               albArn]        as [string, string]] : []),
     ],
     rds: [
       ["aws_cloudwatch_log_group.rds",    `/infraready/${name}/rds`],
@@ -600,8 +624,12 @@ async function tryImportOrphans(
       const tfvarsPath = join(workDir, "terraform.tfvars.json");
       await execFileAsync(OPENTOFU_BINARY, ["import", `-var-file=${tfvarsPath}`, address, id], { cwd: workDir, env });
       await onLog("info", `[tofu] Imported existing resource: ${address}`);
-    } catch {
-      // Resource doesn't exist in AWS or already in state — both are fine
+    } catch (importErr) {
+      const importMsg = (importErr as Error).message ?? String(importErr);
+      // "already managed" = already in state = fine. Anything else = log for debugging.
+      if (!importMsg.includes("already managed") && !importMsg.includes("already exists in the state")) {
+        await onLog("warn", `[tofu] Import skipped for ${address} (${id}): ${importMsg.slice(0, 200)}`);
+      }
     }
   }
 }
