@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, RefreshCw } from "lucide-react";
+import { usePostHog } from "posthog-js/react";
 
 interface DeployAgainButtonProps {
   projectId: string;
@@ -12,6 +13,7 @@ export function DeployAgainButton({ projectId }: DeployAgainButtonProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
   const router = useRouter();
+  const posthog = usePostHog();
 
   async function deployAgain() {
     setLoading(true);
@@ -39,6 +41,7 @@ export function DeployAgainButton({ projectId }: DeployAgainButtonProps) {
       }
 
       const { deploymentId } = await deployRes.json();
+      posthog?.capture("deploy_again_clicked", { project_id: projectId });
       router.push(`/projects/${projectId}?deployment=${deploymentId}`);
       router.refresh();
     } catch (e) {

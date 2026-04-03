@@ -3,12 +3,15 @@
 import { useState } from "react";
 import { Github, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { usePostHog } from "posthog-js/react";
 
 export default function LoginButton() {
   const [loading, setLoading] = useState(false);
+  const posthog = usePostHog();
 
   async function handleGitHubLogin() {
     setLoading(true);
+    posthog?.capture("login_clicked", { provider: "github" });
     const supabase = createClient();
     const next = new URLSearchParams(window.location.search).get("next") ?? "/projects";
     await supabase.auth.signInWithOAuth({

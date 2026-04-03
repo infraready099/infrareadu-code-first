@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { usePostHog } from "posthog-js/react";
 
 type FormState = "idle" | "loading" | "success" | "error";
 
@@ -10,6 +11,7 @@ export function WaitlistForm() {
   const [state, setState] = useState<FormState>("idle");
   const [nameError, setNameError] = useState(false);
   const [emailError, setEmailError] = useState(false);
+  const posthog = usePostHog();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -48,6 +50,9 @@ export function WaitlistForm() {
       }
 
       setState("success");
+      posthog?.capture("waitlist_submitted", {
+        email_domain: trimmedEmail.split("@")[1],
+      });
     } catch {
       setState("error");
     }

@@ -23,6 +23,7 @@ import {
   CreditCard,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { usePostHog } from "posthog-js/react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -978,6 +979,7 @@ function StepThree({
   const [deploying,    setDeploying]    = useState(false);
   const [deployError,  setDeployError]  = useState("");
   const router = useRouter();
+  const posthog = usePostHog();
 
   function handleTierChange(tier: DeploymentTier) {
     const tierModules  = TIERS[tier].modules;
@@ -1058,6 +1060,13 @@ function StepThree({
         setDeployError(json.error ?? "Failed to queue deployment.");
         return;
       }
+      posthog?.capture("deploy_started", {
+        modules,
+        aws_region: data.awsRegion,
+        environment: data.environment,
+        deployment_tier: data.deploymentTier,
+        app_type: appType,
+      });
       router.push(`/projects/${projectId}`);
       sessionStorage.removeItem("wizard_project_id");
     } catch {
@@ -1291,6 +1300,7 @@ const STEP_META = [
 function NewProjectPageInner() {
   const searchParams = useSearchParams();
 
+  const posthog = usePostHog();
   const [step, setStep]           = useState<Step>(1);
   const [projectId, setProjectId] = useState(() =>
     typeof window !== "undefined" ? sessionStorage.getItem("wizard_project_id") ?? "" : ""
@@ -1377,6 +1387,8 @@ function NewProjectPageInner() {
       .limit(1)
       .single();
 
+    posthog?.capture("wizard_step_completed", { step: 2, app_type: stepOneData.appType });
+
     if (existingInstall?.github_installation_id) {
       await supabase
         .from("projects")
@@ -1390,7 +1402,7 @@ function NewProjectPageInner() {
       setProjectId(project.id);
       window.location.href = `/api/github/connect?projectId=${project.id}`;
     }
-  }, [stepOneData, stepTwoData.externalId]);
+  }, [stepOneData, stepTwoData.externalId, posthog]);
 
   const meta = STEP_META[step - 1];
 
@@ -1468,7 +1480,10 @@ function NewProjectPageInner() {
             <StepZero
               data={stepZeroData}
               onChange={(patch) => setStepZeroData((d) => ({ ...d, ...patch }))}
-              onContinue={() => setStep(2)}
+              onContinue={() => {
+                posthog?.capture("wizard_step_completed", { step: 1, builder_platform: stepZeroData.builderPlatform });
+                setStep(2);
+              }}
             />
           )}
           {step === 2 && (
@@ -1484,7 +1499,10 @@ function NewProjectPageInner() {
               data={stepTwoData}
               projectId={projectId}
               onChange={(patch) => setStepTwoData((d) => ({ ...d, ...patch }))}
-              onContinue={() => setStep(4)}
+              onContinue={() => {
+                posthog?.capture("wizard_step_completed", { step: 3, aws_region: stepThreeData.awsRegion });
+                setStep(4);
+              }}
               onBack={() => setStep(2)}
             />
           )}
